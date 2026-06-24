@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <title>MC DevKit</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <style>
+    /* ── 폰트: 마인크래프트(영문) + Galmuri11(한글 픽셀) ── */
+    @font-face {
+      font-family: 'Minecraft';
+      src: url('https://cdn.jsdelivr.net/npm/@south-paw/typeface-minecraft@1.0.0/files/minecraft.woff2') format('woff2');
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Galmuri11';
+      src: url('https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11.woff2') format('woff2');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Galmuri11';
+      src: url('https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-display: swap;
+    }
+
+    /* ── 마인크래프트 팔레트 ── */
+    :root {
+      --mc-bg:        #1a1a1a;
+      --mc-bg2:       #140f0a;
+      --mc-white:     #ffffff;
+      --mc-shadow:    #3f3f3f;   /* 마크 텍스트 그림자 */
+      --mc-yellow:    #ffff55;
+      --mc-gold:      #ffaa00;
+      --mc-green:     #55ff55;
+      --mc-dkgreen:   #00aa00;
+      --mc-aqua:      #55ffff;
+      --mc-red:       #ff5555;
+      --mc-dkred:     #aa0000;
+      --mc-gray:      #aaaaaa;
+      --mc-dkgray:    #555555;
+      /* 돌 버튼 면 */
+      --btn-hi:       #c6c6c6;
+      --btn-sh:       #373737;
+      --font-ui:      'Galmuri11', monospace;
+      --font-logo:    'Minecraft', 'Galmuri11', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--mc-bg2);
+      color: var(--mc-white);
+      font-family: var(--font-ui);
+      font-size: 11px;
+      line-height: 1.5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      /* 마인크래프트 잔디 블록 1개 — 화면 전체를 채움 (위=잔디, 아래=흙) */
+      background-image:
+        linear-gradient(rgba(0,0,0,.08), rgba(0,0,0,.08)),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Crect width='24' height='24' fill='%238a6a43'/%3E%3Crect width='24' height='6' fill='%236aa84a'/%3E%3Crect x='2' y='1' width='2' height='2' fill='%235b9440'/%3E%3Crect x='9' y='0' width='2' height='2' fill='%235b9440'/%3E%3Crect x='15' y='2' width='2' height='2' fill='%235b9440'/%3E%3Crect x='20' y='1' width='2' height='2' fill='%235b9440'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%235b9440'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%2379b94e'/%3E%3Crect x='12' y='3' width='2' height='2' fill='%2379b94e'/%3E%3Crect x='18' y='0' width='2' height='2' fill='%2379b94e'/%3E%3Crect x='22' y='2' width='2' height='2' fill='%2379b94e'/%3E%3Crect x='8' y='1' width='2' height='2' fill='%2379b94e'/%3E%3Crect x='1' y='6' width='2' height='2' fill='%236aa84a'/%3E%3Crect x='5' y='6' width='1' height='1' fill='%236aa84a'/%3E%3Crect x='8' y='6' width='2' height='1' fill='%236aa84a'/%3E%3Crect x='12' y='6' width='1' height='2' fill='%236aa84a'/%3E%3Crect x='16' y='6' width='2' height='1' fill='%236aa84a'/%3E%3Crect x='19' y='6' width='1' height='1' fill='%236aa84a'/%3E%3Crect x='22' y='6' width='2' height='2' fill='%236aa84a'/%3E%3Crect x='3' y='6' width='1' height='1' fill='%236aa84a'/%3E%3Crect x='7' y='5' width='1' height='1' fill='%238a6a43'/%3E%3Crect x='14' y='5' width='1' height='1' fill='%238a6a43'/%3E%3Crect x='20' y='5' width='1' height='1' fill='%238a6a43'/%3E%3Crect x='0' y='9' width='2' height='2' fill='%236e5236'/%3E%3Crect x='6' y='8' width='2' height='2' fill='%236e5236'/%3E%3Crect x='11' y='12' width='2' height='2' fill='%236e5236'/%3E%3Crect x='17' y='10' width='2' height='2' fill='%236e5236'/%3E%3Crect x='21' y='14' width='2' height='2' fill='%236e5236'/%3E%3Crect x='3' y='16' width='2' height='2' fill='%236e5236'/%3E%3Crect x='9' y='18' width='2' height='2' fill='%236e5236'/%3E%3Crect x='14' y='20' width='2' height='2' fill='%236e5236'/%3E%3Crect x='19' y='22' width='2' height='2' fill='%236e5236'/%3E%3Crect x='8' y='14' width='2' height='2' fill='%236e5236'/%3E%3Crect x='4' y='11' width='2' height='2' fill='%235e4630'/%3E%3Crect x='13' y='9' width='2' height='2' fill='%235e4630'/%3E%3Crect x='18' y='16' width='2' height='2' fill='%235e4630'/%3E%3Crect x='22' y='19' width='2' height='2' fill='%235e4630'/%3E%3Crect x='1' y='20' width='2' height='2' fill='%235e4630'/%3E%3Crect x='11' y='22' width='2' height='2' fill='%235e4630'/%3E%3Crect x='16' y='13' width='2' height='2' fill='%235e4630'/%3E%3Crect x='2' y='13' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='8' y='11' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='12' y='16' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='16' y='8' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='20' y='11' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='5' y='19' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='10' y='9' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='15' y='17' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='21' y='8' width='2' height='2' fill='%239c7b50'/%3E%3Crect x='3' y='22' width='2' height='2' fill='%239c7b50'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      image-rendering: pixelated;
+    }
+
+    /* ── 마인크래프트 돌 버튼 (전부 동일한 회색) ── */
+    .mc-btn {
+      font-family: var(--font-ui);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 9px 10px;
+      font-size: 11px;
+      color: var(--mc-white);
+      text-shadow: 1px 1px 0 var(--mc-shadow);
+      background: linear-gradient(180deg, #9a9a9a 0%, #8b8b8b 50%, #797979 100%);
+      border: 2px solid;
+      border-color: var(--btn-hi) var(--btn-sh) var(--btn-sh) var(--btn-hi);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      text-align: center;
+      user-select: none;
+      line-height: 1.4;
+    }
+    .mc-btn:hover:not(:disabled) {
+      background: linear-gradient(180deg, #b6b6b6 0%, #a4a4a4 50%, #929292 100%);
+      border-color: var(--mc-white) #4a4a4a #4a4a4a var(--mc-white);
+    }
+    .mc-btn:active:not(:disabled) {
+      background: linear-gradient(180deg, #797979 0%, #8b8b8b 100%);
+      border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+    }
+    /* 강조는 버튼색이 아니라 글자색으로만 (마크 § 컬러코드 방식) */
+    .mc-btn.t-green  { color: var(--mc-green);  text-shadow: 1px 1px 0 #173f17; }
+    .mc-btn.t-red    { color: var(--mc-red);    text-shadow: 1px 1px 0 #3f1717; }
+    .mc-btn.t-yellow { color: var(--mc-yellow); text-shadow: 1px 1px 0 #3f3f17; }
+    .mc-btn.t-aqua   { color: var(--mc-aqua);   text-shadow: 1px 1px 0 #173f3f; }
+    .mc-btn:disabled {
+      background: linear-gradient(180deg, #5a5a5a 0%, #4f4f4f 100%);
+      color: #8a8a8a;
+      text-shadow: none;
+      border-color: #6a6a6a #2c2c2c #2c2c2c #6a6a6a;
+      cursor: not-allowed;
+    }
+    .mc-btn.sm  { padding: 8px 10px; font-size: 11px; }
+    .mc-btn.xs  { padding: 6px 9px;  font-size: 10px; width: auto; }
+
+    /* ── 인풋 (인벤토리 슬롯처럼 안으로 들어간 느낌) ── */
+    .mc-inp {
+      font-family: var(--font-ui);
+      font-size: 11px;
+      color: var(--mc-white);
+      background: var(--mc-bg2);
+      border: 2px solid;
+      border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      padding: 8px 8px;
+      width: 100%;
+      outline: none;
+      caret-color: var(--mc-white);
+    }
+    .mc-inp::placeholder { color: #6a6a6a; }
+    .mc-inp:focus { border-color: var(--mc-white) var(--btn-hi) var(--btn-hi) var(--mc-white); }
+    .mc-inp[readonly] { color: var(--mc-gray); }
+    select.mc-inp {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23c6c6c6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 22px;
+    }
+    select.mc-inp option { background: #2a2a2a; }
+
+    /* ── 타이틀바 ── */
+    #titlebar {
+      -webkit-app-region: drag;
+      background: rgba(0,0,0,.24);
+      border-bottom: 3px solid #000;
+      box-shadow: 0 3px 0 #2f4a1d;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      height: 50px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    #titlebar * { -webkit-app-region: no-drag; }
+    .titlebar-left  { display: flex; align-items: center; gap: 14px; }
+    .titlebar-right { display: flex; align-items: center; gap: 8px; }
+
+    .mc-logo {
+      font-family: var(--font-logo);
+      font-size: 22px;
+      color: var(--mc-yellow);
+      text-shadow: 2px 2px 0 #3d3500;
+      letter-spacing: 1px;
+    }
+    .mc-logo.online { color: var(--mc-green); text-shadow: 2px 2px 0 #003500; }
+
+    /* ── 상태 배지 ── */
+    .mc-badge {
+      font-family: var(--font-ui);
+      font-weight: 700;
+      font-size: 10px;
+      padding: 5px 9px;
+      border: 2px solid;
+      letter-spacing: .5px;
+    }
+    .badge-stopped  { color: #9a9a9a;          border-color: var(--mc-dkgray); background: rgba(85,85,85,.12); }
+    .badge-starting { color: var(--mc-gold);   border-color: var(--mc-gold);   background: rgba(255,170,0,.12);
+                      animation: mc-blink .6s step-end infinite; }
+    .badge-running  { color: var(--mc-green);  border-color: var(--mc-dkgreen); background: rgba(85,255,85,.1); }
+    .badge-stopping { color: var(--mc-red);    border-color: var(--mc-dkred);  background: rgba(255,85,85,.1); }
+    @keyframes mc-blink { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+    /* ── 레이아웃 ── */
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── 사이드바 ── */
+    .sidebar {
+      width: 290px;
+      flex-shrink: 0;
+      background: rgba(0,0,0,.24);
+      border-right: 3px solid #000;
+      box-shadow: 3px 0 0 #2f4a1d;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .sidebar::-webkit-scrollbar { width: 8px; }
+    .sidebar::-webkit-scrollbar-track { background: var(--mc-bg2); }
+    .sidebar::-webkit-scrollbar-thumb { background: #6a6a6a; border: 1px solid #000; }
+
+    .mc-section {
+      padding: 14px 12px;
+      border-bottom: 2px solid #000;
+    }
+    .mc-section-title {
+      color: var(--mc-yellow);
+      text-shadow: 1px 1px 0 #3d3500;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: .5px;
+    }
+
+    .mc-label {
+      color: #ffffff;
+      text-shadow: 1px 1px 0 rgba(0,0,0,.85);
+      font-size: 11px;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .mc-row { display: flex; gap: 6px; }
+    .mc-col { display: flex; flex-direction: column; gap: 10px; }
+    .mc-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .mc-full { grid-column: 1 / -1; }
+
+    /* ── 접속 팀원 ── */
+    .team-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #000;
+      gap: 6px;
+    }
+    .team-row:last-child { border-bottom: none; }
+    .team-name { color: var(--mc-white); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .role-owner  { color: var(--mc-gold);   font-size: 10px; flex-shrink: 0; }
+    .role-admin  { color: var(--mc-aqua);   font-size: 10px; flex-shrink: 0; }
+    .role-member { color: var(--mc-gray);   font-size: 10px; flex-shrink: 0; }
+    .role-viewer { color: var(--mc-dkgray); font-size: 10px; flex-shrink: 0; }
+
+    .team-row-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .role-select {
+      font-family: var(--font-ui);
+      font-size: 9px;
+      color: var(--mc-white);
+      background: var(--mc-bg2);
+      border: 1px solid #4a4a4a;
+      padding: 2px 18px 2px 4px;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23aaaaaa'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 4px center;
+      outline: none;
+    }
+    .role-select option { background: #2a2a2a; }
+    .role-select:focus { border-color: #888; }
+    .kick-btn {
+      font-family: var(--font-ui);
+      font-size: 9px;
+      color: var(--mc-red);
+      background: rgba(170,0,0,.15);
+      border: 1px solid #553333;
+      padding: 2px 6px;
+      cursor: pointer;
+      line-height: 1.5;
+    }
+    .kick-btn:hover { background: rgba(255,85,85,.2); border-color: var(--mc-red); }
+
+    /* ── 오른쪽 사이드바 ── */
+    .right-sidebar {
+      width: 250px;
+      flex-shrink: 0;
+      background: rgba(0,0,0,.24);
+      border-left: 3px solid #000;
+      box-shadow: -3px 0 0 #1a3a0d;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .right-sidebar::-webkit-scrollbar { width: 8px; }
+    .right-sidebar::-webkit-scrollbar-track { background: var(--mc-bg2); }
+    .right-sidebar::-webkit-scrollbar-thumb { background: #6a6a6a; border: 1px solid #000; }
+
+    /* ── 드롭존 (플러그인 업로드) ── */
+    .drop-zone {
+      border: 2px dashed #4a4a4a;
+      background: rgba(0,0,0,.2);
+      padding: 14px 10px;
+      text-align: center;
+      color: #6a6a6a;
+      font-size: 10px;
+      line-height: 1.8;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      margin-bottom: 8px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--mc-green);
+      background: rgba(85,255,85,.05);
+      color: var(--mc-green);
+    }
+    .drop-zone input[type=file] { display: none; }
+
+    .plugin-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 4px;
+      border-bottom: 1px solid #222;
+    }
+    .plugin-item:last-child { border-bottom: none; }
+    .plugin-name { flex: 1; font-size: 10px; color: var(--mc-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .plugin-size { font-size: 9px; color: #6a6a6a; flex-shrink: 0; }
+    .plugin-del  { font-family: var(--font-ui); font-size: 9px; color: var(--mc-red); background: rgba(170,0,0,.15); border: 1px solid #553333; padding: 2px 5px; cursor: pointer; flex-shrink: 0; }
+    .plugin-del:hover { background: rgba(255,85,85,.2); }
+    #pluginList:empty::after { content: '설치된 플러그인 없음'; color: #555; font-size: 10px; display: block; padding: 4px 0; }
+
+    /* ── MC 서버 주소 칩 ── */
+    .mc-addr-chip {
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      color: var(--mc-yellow);
+      background: rgba(0,0,0,.35);
+      border: 2px solid;
+      border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      padding: 7px 10px;
+      text-align: center;
+      letter-spacing: .5px;
+      margin-bottom: 8px;
+      word-break: break-all;
+      min-height: 36px;
+    }
+    .mc-addr-chip.empty { color: #555; font-family: var(--font-ui); font-size: 10px; }
+
+    /* ── 권한 매트릭스 ── */
+    .perm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin-bottom: 10px;
+    }
+    .perm-table th {
+      background: rgba(0,0,0,.4);
+      color: var(--mc-gray);
+      font-weight: 700;
+      padding: 5px 4px;
+      text-align: center;
+      border: 1px solid #333;
+      font-size: 9px;
+      letter-spacing: .3px;
+    }
+    .perm-table th:first-child { text-align: left; padding-left: 6px; }
+    .perm-table td {
+      padding: 4px 4px;
+      border: 1px solid #222;
+      text-align: center;
+      color: var(--mc-gray);
+      font-size: 10px;
+    }
+    .perm-table td:first-child { text-align: left; padding-left: 6px; }
+    .perm-table tr:nth-child(even) td { background: rgba(255,255,255,.025); }
+    .perm-table input[type=checkbox] {
+      width: 13px; height: 13px;
+      cursor: pointer;
+      accent-color: var(--mc-green);
+    }
+
+    /* ── 초대 URL ── */
+    #inviteUrl {
+      font-size: 10px;
+      color: var(--mc-aqua);
+      word-break: break-all;
+      line-height: 1.7;
+      padding: 8px 8px;
+      background: rgba(85,255,255,.05);
+      border: 2px solid;
+      border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      margin-bottom: 8px;
+      min-height: 40px;
+    }
+    .invite-placeholder { color: #6a6a6a; }
+
+    /* ── 플레이어 목록 ── */
+    .player-list { margin-top: 4px; }
+    .player-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 0; border-bottom: 1px solid #1a1a1a; font-size: 10px;
+    }
+    .player-item:last-child { border-bottom: none; }
+    .player-head {
+      width: 14px; height: 14px; background: var(--mc-dkgray);
+      border: 1px solid #555; flex-shrink: 0; display: flex;
+      align-items: center; justify-content: center; font-size: 8px;
+    }
+    .player-name { color: var(--mc-white); flex: 1; }
+    #playerCount { color: var(--mc-gray); font-size: 10px; font-weight: 400; margin-left: 4px; }
+    #playerList:empty::after { content: '접속자 없음'; color: #555; font-size: 10px; display: block; padding: 4px 0; }
+
+    /* ── 터널 칩 ── */
+    #tunnelChip {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      color: var(--mc-gray);
+      background: var(--mc-bg2);
+      border: 2px solid;
+      border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      padding: 5px 8px;
+      max-width: 200px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ── 로그 패널 ── */
+    .log-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: rgba(0,0,0,.40);
+    }
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 3px solid #000;
+      box-shadow: 0 3px 0 #2f4a1d;
+      flex-shrink: 0;
+    }
+    .log-title {
+      color: var(--mc-gray);
+      font-size: 11px;
+      font-weight: 700;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .log-controls { display: flex; align-items: center; gap: 8px; }
+
+    #logBox {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      font-family: 'Consolas', 'Cascadia Code', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    #logBox::-webkit-scrollbar { width: 8px; }
+    #logBox::-webkit-scrollbar-track { background: var(--mc-bg2); border-left: 2px solid #000; }
+    #logBox::-webkit-scrollbar-thumb { background: #6a6a6a; }
+
+    .log-line { display: flex; gap: 8px; padding: 1px 0; text-shadow: 1px 1px 1px rgba(0,0,0,.9); }
+    .log-ts   { color: #cfcfcf; flex-shrink: 0; font-size: 12px; padding-top: 1px; }
+    .log-error  .log-msg { color: var(--mc-red); }
+    .log-warn   .log-msg { color: var(--mc-gold); }
+    .log-devkit .log-msg { color: var(--mc-green); font-weight: bold; }
+    .log-info   .log-msg { color: var(--mc-gray); }
+    .log-entry-bg:nth-child(even) { background: rgba(255,255,255,.025); }
+
+    /* ── 모달 ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.82);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .modal-box {
+      background: #2a2a2a;
+      border: 3px solid;
+      border-color: var(--btn-hi) var(--btn-sh) var(--btn-sh) var(--btn-hi);
+      padding: 26px 24px;
+      width: 340px;
+    }
+    .modal-title {
+      color: var(--mc-yellow);
+      text-shadow: 2px 2px 0 #3d3500;
+      font-size: 14px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 22px;
+      letter-spacing: 1px;
+    }
+    .modal-hint { color: #6a6a6a; font-size: 10px; line-height: 1.7; }
+  </style>
+</head>
+<body>
+
+<!-- ── 타이틀바 ── -->
+<div id="titlebar">
+  <div class="titlebar-left">
+    <span class="mc-logo">MC DevKit</span>
+    <span id="serverBadge" class="mc-badge badge-stopped">OFFLINE</span>
+  </div>
+  <div class="titlebar-right">
+    <span id="tunnelChip">터널 없음</span>
+    <button class="mc-btn t-aqua xs" onclick="startTunnel()">터널 켜기</button>
+    <button class="mc-btn xs"        onclick="stopTunnel()">터널 끄기</button>
+  </div>
+</div>
+
+<!-- ── 본문 ── -->
+<div class="layout">
+
+  <!-- ── 사이드바 ── -->
+  <div class="sidebar">
+
+    <!-- 서버 컨트롤 -->
+    <div class="mc-section">
+      <div class="mc-section-title">서버</div>
+      <div class="mc-grid2" style="gap:6px;">
+        <button id="btnStart"   class="mc-btn t-green sm" onclick="action('start')">시작</button>
+        <button id="btnStop"    class="mc-btn t-red   sm" onclick="action('stop')">중지</button>
+        <button id="btnRestart" class="mc-btn t-yellow sm" onclick="action('restart')">재시작</button>
+        <button id="btnBackup"  class="mc-btn sm" onclick="doBackup()" title="월드 백업 (tar.gz)">백업</button>
+      </div>
+    </div>
+
+    <!-- 플러그인 -->
+    <div class="mc-section">
+      <div class="mc-section-title">플러그인</div>
+      <div class="mc-col">
+        <button id="btnBuild"  class="mc-btn t-aqua sm" onclick="action('build')">빌드 + 리로드</button>
+        <button id="btnReload" class="mc-btn sm"        onclick="action('reload')">플러그인 리로드</button>
+      </div>
+    </div>
+
+    <!-- 플러그인 파일 관리 -->
+    <div class="mc-section">
+      <div class="mc-section-title">플러그인 파일</div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('jarInput').click()"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="onJarDrop(event)">
+        <input type="file" id="jarInput" accept=".jar" multiple onchange="onJarSelect(this)">
+        ▲ .jar 파일을 여기에 드롭하거나 클릭
+      </div>
+      <div id="pluginList"></div>
+    </div>
+
+    <!-- 명령어 -->
+    <div class="mc-section">
+      <div class="mc-section-title">명령어
+        <span id="cmdModeLabel" style="color:var(--mc-gray);font-size:9px;font-weight:400;margin-left:6px;">RCON</span>
+      </div>
+      <div class="mc-row" style="margin-bottom:6px;">
+        <input id="cmdInput" type="text" class="mc-inp" placeholder="/say Hello"
+          onkeydown="if(event.key==='Enter') sendCmd()"/>
+        <button class="mc-btn xs" onclick="sendCmd()" style="width:auto;flex-shrink:0;padding:8px 12px;">전송</button>
+      </div>
+      <button id="btnStdinToggle" class="mc-btn xs" onclick="toggleStdinMode()"
+        style="font-size:9px;padding:5px 8px;">stdin 모드 전환</button>
+    </div>
+
+    <!-- 설정 -->
+    <div class="mc-section">
+      <div class="mc-section-title">설정</div>
+      <div class="mc-col">
+        <div>
+          <label class="mc-label">플러그인 이름</label>
+          <input id="cfgPlugin" type="text" class="mc-inp"/>
+        </div>
+        <div>
+          <label class="mc-label">프로젝트 폴더</label>
+          <div class="mc-row">
+            <input id="cfgProject" type="text" class="mc-inp" readonly placeholder="폴더 선택..."/>
+            <button class="mc-btn xs" onclick="pickDir('cfgProject')" style="width:auto;flex-shrink:0;">찾기</button>
+          </div>
+        </div>
+        <div>
+          <label class="mc-label">서버 폴더</label>
+          <div class="mc-row">
+            <input id="cfgServer" type="text" class="mc-inp" readonly placeholder="폴더 선택..."/>
+            <button class="mc-btn xs" onclick="pickDir('cfgServer')" style="width:auto;flex-shrink:0;">찾기</button>
+          </div>
+        </div>
+        <div class="mc-grid2">
+          <div>
+            <label class="mc-label">Paper 버전</label>
+            <select id="cfgVersion" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
+              <optgroup label="1.21.x">
+                <option>1.21.4</option>
+                <option>1.21.3</option>
+                <option>1.21.1</option>
+              </optgroup>
+              <optgroup label="1.20.x">
+                <option>1.20.6</option>
+                <option>1.20.4</option>
+                <option>1.20.2</option>
+                <option>1.20.1</option>
+              </optgroup>
+              <optgroup label="1.19.x">
+                <option>1.19.4</option>
+                <option>1.19.3</option>
+                <option>1.19.2</option>
+                <option>1.19.1</option>
+                <option>1.19</option>
+              </optgroup>
+              <optgroup label="1.18.x">
+                <option>1.18.2</option>
+                <option>1.18.1</option>
+                <option>1.18</option>
+              </optgroup>
+              <optgroup label="1.17.x">
+                <option>1.17.1</option>
+                <option>1.17</option>
+              </optgroup>
+              <optgroup label="1.16.x">
+                <option>1.16.5</option>
+                <option>1.16.4</option>
+                <option>1.16.3</option>
+                <option>1.16.2</option>
+                <option>1.16.1</option>
+              </optgroup>
+            </select>
+          </div>
+          <div>
+            <label class="mc-label">메모리</label>
+            <select id="cfgMemory" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
+              <option>1G</option><option selected>2G</option><option>4G</option>
+              <option>6G</option><option>8G</option>
+            </select>
+          </div>
+        </div>
+        <button class="mc-btn sm" onclick="saveConfig()">설정 저장</button>
+      </div>
+    </div>
+
+    <!-- 팀원 초대 -->
+    <div class="mc-section">
+      <div class="mc-section-title">팀원 초대</div>
+      <div id="inviteUrl" class="invite-placeholder">터널 시작 후 URL 표시</div>
+      <div class="mc-row">
+        <button class="mc-btn sm" onclick="copyUrl()">URL 복사</button>
+        <button class="mc-btn sm" onclick="openBrowser()" style="width:auto;flex-shrink:0;padding:8px 12px;">열기</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── 로그 패널 ── -->
+  <div class="log-panel" style="min-width:0;">
+    <div class="log-toolbar">
+      <span class="log-title">실시간 로그</span>
+      <div class="log-controls">
+        <select id="logFilter" class="mc-inp" style="width:auto;font-size:11px;padding:6px 22px 6px 8px;" onchange="applyFilter()">
+          <option value="all">전체 로그</option>
+          <option value="error">오류만</option>
+          <option value="warn">경고만</option>
+          <option value="devkit">DevKit만</option>
+        </select>
+        <button class="mc-btn xs" onclick="clearLogs()">초기화</button>
+      </div>
+    </div>
+    <div id="logBox"></div>
+  </div>
+
+  <!-- ── 오른쪽 사이드바 ── -->
+  <div class="right-sidebar">
+
+    <!-- MC 서버 접속 주소 + playit 통합 -->
+    <div class="mc-section">
+      <div class="mc-section-title">서버 접속 주소</div>
+
+      <!-- 주소 표시 -->
+      <div class="mc-addr-chip empty" id="mcAddrChip">주소 없음</div>
+      <div class="mc-row" style="margin-bottom:8px;">
+        <button class="mc-btn xs" onclick="copyMcAddr()">복사</button>
+        <button class="mc-btn xs t-green" id="playitBtn" onclick="togglePlayit()" style="flex:1;">▶ playit 시작</button>
+      </div>
+
+      <!-- playit claim URL (계정 연결 필요할 때만 표시) -->
+      <div id="playitClaim" style="display:none;margin-bottom:8px;">
+        <div style="color:var(--mc-gold);font-size:10px;margin-bottom:5px;line-height:1.6;">
+          아래 URL을 브라우저에서 열어<br>playit 계정과 연결하세요:
+        </div>
+        <div id="playitClaimUrl" style="font-size:9px;color:var(--mc-aqua);word-break:break-all;
+          background:rgba(0,0,0,.3);padding:5px;border:1px solid #333;cursor:pointer;"
+          onclick="openPlayitClaim()"></div>
+        <button class="mc-btn xs" style="margin-top:5px;" onclick="openPlayitClaim()">브라우저에서 열기</button>
+      </div>
+
+      <!-- 수동 입력 (playit 외 서비스용) -->
+      <div id="mcAddrEdit" style="display:none">
+        <div class="mc-col">
+          <div>
+            <label class="mc-label">직접 입력 (선택)</label>
+            <input id="mcAddrInput" type="text" class="mc-inp" placeholder="예) xxx.joinmc.link:25565"/>
+          </div>
+          <button class="mc-btn sm" onclick="saveMcAddr()">공유하기</button>
+        </div>
+      </div>
+      <button class="mc-btn xs" id="mcAddrEditBtn" onclick="toggleMcAddrEdit()" style="margin-top:4px;">직접 입력</button>
+    </div>
+
+    <!-- 팀원 관리 -->
+    <div class="mc-section">
+      <div class="mc-section-title">팀원 관리</div>
+      <div id="teamList"><div style="color:#6a6a6a;font-size:11px;padding:4px 0;">접속한 팀원 없음</div></div>
+    </div>
+
+    <!-- 접속 중인 플레이어 -->
+    <div class="mc-section">
+      <div class="mc-section-title">플레이어<span id="playerCount"></span></div>
+      <div id="playerList" class="player-list"></div>
+    </div>
+
+    <!-- 권한 설정 (OWNER만 표시) -->
+    <div class="mc-section" id="permSection" style="display:none">
+      <div class="mc-section-title">권한 설정</div>
+      <table class="perm-table" id="permMatrix">
+        <thead>
+          <tr>
+            <th>액션</th>
+            <th>ADMIN</th>
+            <th>MBR</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button class="mc-btn sm" onclick="savePermissions()">권한 저장</button>
+    </div>
+
+    <!-- 빌드 명령어 (OWNER만 표시) -->
+    <div class="mc-section" id="buildCmdSection" style="display:none">
+      <div class="mc-section-title">빌드 명령어</div>
+      <div class="mc-col">
+        <div>
+          <label class="mc-label">커스텀 빌드 명령</label>
+          <input id="cfgBuildCmd" type="text" class="mc-inp" placeholder="기본: gradlew.bat build -x test"/>
+        </div>
+        <button class="mc-btn sm" onclick="saveBuildCmd()">저장</button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ── 인증 모달 ── -->
+<div id="authModal" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title">MC DevKit 접속</div>
+    <div class="mc-col">
+      <div>
+        <label class="mc-label">닉네임</label>
+        <input id="authName" type="text" class="mc-inp" placeholder="팀원에게 표시될 이름"/>
+      </div>
+      <div>
+        <label class="mc-label">Owner 토큰 (선택)</label>
+        <input id="authToken" type="password" class="mc-inp" placeholder="서버 소유자만 입력"/>
+      </div>
+      <div class="modal-hint">토큰 없이 접속하면 MEMBER 권한으로 참여합니다.</div>
+      <button class="mc-btn t-green" onclick="authenticate()">접속하기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// 버튼 ID → 액션 키 매핑 (서버 권한과 동기화용)
+const ACTION_BTN = { start:'btnStart', stop:'btnStop', restart:'btnRestart', build:'btnBuild', reload:'btnReload' };
+const ROLE_PERMS = {
+  OWNER:  ['btnStart','btnStop','btnRestart','btnBuild','btnReload'],
+  ADMIN:  ['btnRestart','btnBuild','btnReload'],
+  MEMBER: ['btnBuild','btnReload'],
+  VIEWER: [],
+};
+const ROLE_CLASS = { OWNER:'role-owner', ADMIN:'role-admin', MEMBER:'role-member', VIEWER:'role-viewer' };
+
+// 권한 매트릭스 액션 목록
+const PERM_ACTIONS = [
+  { key:'start',   label:'서버 시작' },
+  { key:'stop',    label:'서버 중지' },
+  { key:'restart', label:'재시작' },
+  { key:'reload',  label:'플러그인 리로드' },
+  { key:'build',   label:'빌드' },
+  { key:'command', label:'명령어 전송' },
+];
+
+let ws = null, myRole = null, tunnelUrl = null, allLogs = [], myToken = null, stdinMode = false;
+const isElectron = typeof window.devkit !== 'undefined';
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onopen = async () => {
+    if (isElectron) {
+      // Electron 앱 = 로컬 소유자 → /api/status에서 owner 토큰 받아 자동 인증
+      try {
+        const status = await fetch('/api/status').then(r => r.json());
+        const name   = localStorage.getItem('devkit_name') || 'Owner';
+        ws.send(JSON.stringify({ type: 'AUTH', name, token: status.ownerToken }));
+      } catch {
+        document.getElementById('authModal').style.display = 'flex';
+      }
+      return;
+    }
+    // 브라우저(팀원) — 저장된 토큰 또는 인증 모달
+    const token = localStorage.getItem('devkit_token');
+    const name  = localStorage.getItem('devkit_name') || 'Steve';
+    if (token) ws.send(JSON.stringify({ type:'AUTH', name, token }));
+    else       document.getElementById('authModal').style.display = 'flex';
+  };
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+  ws.onclose   = ()  => setTimeout(connect, 2000);
+}
+
+function handle(msg) {
+  switch (msg.type) {
+    case 'AUTH_OK': {
+      myRole  = msg.role;
+      myToken = msg.token;
+      localStorage.setItem('devkit_token', msg.token);
+      document.getElementById('authModal').style.display = 'none';
+      if (msg.permissions) syncPermissions(msg.permissions);
+      applyRole();
+      const ownerNow = myRole === 'OWNER';
+      document.getElementById('permSection').style.display     = ownerNow ? '' : 'none';
+      document.getElementById('buildCmdSection').style.display = ownerNow ? '' : 'none';
+      if (ownerNow && msg.permissions) renderPermMatrix(msg.permissions);
+      break;
+    }
+    case 'LOG':         appendLog(msg.line);                              break;
+    case 'STATUS':      updateBadge(msg.status); setTunnel(msg.tunnelUrl); break;
+    case 'TEAM_UPDATE': renderTeam(msg.clients);                          break;
+    case 'ACTION_LOG':  appendLog(`[팀] ${msg.message}`, 'devkit');       break;
+    case 'COMMAND_RESULT':
+      appendLog(`> ${msg.command}`, 'devkit');
+      if (msg.result) appendLog(msg.result); break;
+    case 'MC_ADDRESS':     setMcAddr(msg.address);                        break;
+    case 'PLAYIT_CLAIM':  setPlayitClaim(msg.url);                       break;
+    case 'PLAYERS_UPDATE': renderPlayers(msg.players || []);             break;
+    case 'SERVER_CRASH':
+      appendLog('[DevKit] ⚠ 서버 비정상 종료 — 10초 후 자동 재시작...', 'error');
+      renderPlayers([]);
+      break;
+    case 'ERROR':  appendLog(`[오류] ${msg.message}`, 'error'); break;
+    case 'KICKED':
+      alert(msg.message || '관리자에 의해 강퇴되었습니다.');
+      localStorage.removeItem('devkit_token');
+      ws.close();
+      break;
+  }
+}
+
+// 서버에서 받은 권한 → 로컬 ROLE_PERMS 동기화 (버튼 비활성화 반영)
+function syncPermissions(perms) {
+  ['ADMIN','MEMBER','VIEWER'].forEach(role => {
+    const actions = perms[role] || [];
+    ROLE_PERMS[role] = actions.map(a => ACTION_BTN[a]).filter(Boolean);
+  });
+}
+
+// 권한 매트릭스 테이블 렌더링
+function renderPermMatrix(perms) {
+  const tbody = document.querySelector('#permMatrix tbody');
+  tbody.innerHTML = PERM_ACTIONS.map(({ key, label }) => {
+    const aChk = (perms.ADMIN  || []).includes(key) ? 'checked' : '';
+    const mChk = (perms.MEMBER || []).includes(key) ? 'checked' : '';
+    return `<tr>
+      <td>${label}</td>
+      <td><input type="checkbox" id="perm_admin_${key}" ${aChk}></td>
+      <td><input type="checkbox" id="perm_member_${key}" ${mChk}></td>
+    </tr>`;
+  }).join('');
+}
+
+async function savePermissions() {
+  const ADMIN = [], MEMBER = [];
+  PERM_ACTIONS.forEach(({ key }) => {
+    if (document.getElementById(`perm_admin_${key}`)?.checked)  ADMIN.push(key);
+    if (document.getElementById(`perm_member_${key}`)?.checked) MEMBER.push(key);
+  });
+  await fetch('/api/permissions', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ADMIN, MEMBER, VIEWER: [] }),
+  });
+  syncPermissions({ ADMIN, MEMBER, VIEWER: [] });
+  applyRole();
+  appendLog('[DevKit] 권한 설정이 저장되었습니다', 'devkit');
+}
+
+async function saveBuildCmd() {
+  const cmd = document.getElementById('cfgBuildCmd').value.trim();
+  await fetch('/api/config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ buildCmd: cmd || null }),
+  });
+  appendLog('[DevKit] 빌드 명령어 저장됨', 'devkit');
+}
+
+function changeRole(targetToken, newRole) {
+  ws.send(JSON.stringify({ type:'ROLE_CHANGE', targetToken, newRole }));
+}
+
+function kickMember(targetToken, name) {
+  if (!confirm(`${name}을(를) 강퇴하시겠습니까?`)) return;
+  ws.send(JSON.stringify({ type:'KICK', targetToken }));
+}
+
+function authenticate() {
+  const name  = document.getElementById('authName').value.trim() || 'Steve';
+  const token = document.getElementById('authToken').value.trim();
+  localStorage.setItem('devkit_name', name);
+  ws.send(JSON.stringify({ type:'AUTH', name, token }));
+}
+
+function action(act) { ws.send(JSON.stringify({ type:'ACTION', action: act })); }
+
+function sendCmd() {
+  const cmd = document.getElementById('cmdInput').value.trim();
+  if (!cmd) return;
+  if (stdinMode) {
+    ws.send(JSON.stringify({ type: 'STDIN', input: cmd }));
+    appendLog(`> [stdin] ${cmd}`, 'devkit');
+  } else {
+    ws.send(JSON.stringify({ type: 'COMMAND', command: cmd }));
+  }
+  document.getElementById('cmdInput').value = '';
+}
+
+function toggleStdinMode() {
+  stdinMode = !stdinMode;
+  document.getElementById('cmdModeLabel').textContent  = stdinMode ? 'stdin' : 'RCON';
+  document.getElementById('cmdModeLabel').style.color  = stdinMode ? 'var(--mc-gold)' : 'var(--mc-gray)';
+  document.getElementById('cmdInput').placeholder       = stdinMode ? '직접 콘솔 입력 (예: say hello)' : '/say Hello';
+  document.getElementById('btnStdinToggle').textContent = stdinMode ? 'RCON 모드 전환' : 'stdin 모드 전환';
+  appendLog(`[DevKit] 명령어 모드: ${stdinMode ? 'stdin (직접 콘솔)' : 'RCON'}`, 'devkit');
+}
+
+// ── 플레이어 목록 렌더링 ─────────────────────────────────────────────────
+function renderPlayers(players) {
+  const el    = document.getElementById('playerList');
+  const count = document.getElementById('playerCount');
+  count.textContent = players.length ? ` (${players.length}명)` : '';
+  el.innerHTML = players.map(p => `
+    <div class="player-item">
+      <div class="player-head">☺</div>
+      <span class="player-name">${esc(p)}</span>
+    </div>`).join('');
+}
+
+// ── 세계 백업 ──────────────────────────────────────────────────────────────
+async function doBackup() {
+  const btn = document.getElementById('btnBackup');
+  btn.disabled = true;
+  btn.textContent = '백업 중...';
+  appendLog('[DevKit] 월드 백업 시작...', 'devkit');
+  try {
+    const r = await fetch('/api/backup', { method: 'POST' });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+  } catch (e) {
+    appendLog(`[DevKit] 백업 실패: ${e.message}`, 'error');
+  }
+  btn.disabled = false;
+  btn.textContent = '백업';
+}
+
+async function startTunnel() { await fetch('/api/tunnel/start', { method:'POST' }); }
+async function stopTunnel()  { await fetch('/api/tunnel/stop',  { method:'POST' }); setTunnel(null); }
+
+function setTunnel(url) {
+  tunnelUrl = url;
+  document.getElementById('tunnelChip').textContent = url || '터널 없음';
+  const inv = document.getElementById('inviteUrl');
+  inv.textContent  = url || '터널 시작 후 URL 표시';
+  inv.className    = url ? '' : 'invite-placeholder';
+}
+
+function copyUrl()    { if (tunnelUrl) navigator.clipboard.writeText(tunnelUrl); }
+function openBrowser() {
+  if (!tunnelUrl) return;
+  isElectron ? window.devkit.openExternal(tunnelUrl) : window.open(tunnelUrl);
+}
+
+async function pickDir(id) {
+  if (!isElectron) return;
+  const dir = await window.devkit.selectDirectory();
+  if (dir) document.getElementById(id).value = dir;
+}
+
+async function saveConfig() {
+  await fetch('/api/config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      pluginName:   document.getElementById('cfgPlugin').value,
+      projectDir:   document.getElementById('cfgProject').value,
+      serverDir:    document.getElementById('cfgServer').value,
+      paperVersion: document.getElementById('cfgVersion').value,
+      memory:       document.getElementById('cfgMemory').value,
+    }),
+  });
+  appendLog('[DevKit] 설정 저장됨', 'devkit');
+}
+
+// init 시 서버 권한도 불러와서 OWNER면 매트릭스 반영
+async function loadPermissions() {
+  const perms = await fetch('/api/permissions').then(r => r.json());
+  syncPermissions(perms);
+  if (myRole === 'OWNER') renderPermMatrix(perms);
+}
+
+async function loadConfig() {
+  const cfg = await fetch('/api/config').then(r => r.json());
+  document.getElementById('cfgPlugin').value   = cfg.pluginName || '';
+  document.getElementById('cfgProject').value  = cfg.projectDir || '';
+  document.getElementById('cfgServer').value   = cfg.serverDir  || '';
+  document.getElementById('cfgBuildCmd').value = cfg.buildCmd   || '';
+  // Paper 버전 / 메모리 드롭다운 복원
+  if (cfg.paperVersion) {
+    const vEl = document.getElementById('cfgVersion');
+    [...vEl.options].forEach(o => { o.selected = (o.value === cfg.paperVersion); });
+  }
+  if (cfg.memory) {
+    const mEl = document.getElementById('cfgMemory');
+    [...mEl.options].forEach(o => { o.selected = (o.value === cfg.memory); });
+  }
+}
+
+function ts() {
+  const d = new Date();
+  return [d.getHours(),d.getMinutes(),d.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
+}
+
+function appendLog(line, force) {
+  const cls = force || classify(line);
+  const t   = ts();
+  allLogs.push({ line, cls, t });
+  if (allLogs.length > 3000) allLogs.shift();
+  const f = document.getElementById('logFilter').value;
+  if (f === 'all' || matchFilter({ cls }, f)) renderLine({ line, cls, t });
+  const box = document.getElementById('logBox');
+  box.scrollTop = box.scrollHeight;
+}
+
+function classify(line) {
+  if (/\[DevKit\]/.test(line))             return 'devkit';
+  if (/ERROR|Exception|SEVERE/.test(line)) return 'error';
+  if (/WARN/.test(line))                   return 'warn';
+  return 'info';
+}
+
+function matchFilter(e, f) {
+  if (f === 'error')  return e.cls === 'error';
+  if (f === 'warn')   return e.cls === 'warn';
+  if (f === 'devkit') return e.cls === 'devkit';
+  return true;
+}
+
+function renderLine({ line, cls, t }) {
+  const box = document.getElementById('logBox');
+  const el  = document.createElement('div');
+  el.className = `log-line log-${cls} log-entry-bg`;
+  el.innerHTML = `<span class="log-ts">${t||ts()}</span><span class="log-msg">${esc(line)}</span>`;
+  box.appendChild(el);
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function applyFilter() {
+  const box = document.getElementById('logBox');
+  const f   = document.getElementById('logFilter').value;
+  box.innerHTML = '';
+  allLogs.filter(e => matchFilter(e, f)).forEach(renderLine);
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearLogs() { allLogs = []; document.getElementById('logBox').innerHTML = ''; }
+
+function updateBadge(status) {
+  const el  = document.getElementById('serverBadge');
+  const map = {
+    running:  ['ONLINE',   'badge-running'],
+    starting: ['STARTING', 'badge-starting'],
+    stopping: ['STOPPING', 'badge-stopping'],
+    stopped:  ['OFFLINE',  'badge-stopped'],
+  };
+  const [label, cls] = map[status] || ['?', 'badge-stopped'];
+  el.textContent = label;
+  el.className   = `mc-badge ${cls}`;
+
+  const logo = document.querySelector('.mc-logo');
+  logo.className = status === 'running' ? 'mc-logo online' : 'mc-logo';
+}
+
+function renderTeam(clients) {
+  const isOwner = myRole === 'OWNER';
+  document.getElementById('teamList').innerHTML = clients.length
+    ? clients.map(c => {
+        const isMe = c.id === myToken;
+        const badge = `<span class="${ROLE_CLASS[c.role]||'role-viewer'}">[${c.role}]</span>`;
+        const controls = (isOwner && !isMe && c.role !== 'OWNER') ? `
+          <div class="team-row-controls">
+            <select class="role-select" onchange="changeRole('${c.id}',this.value)">
+              <option ${c.role==='ADMIN'  ?'selected':''} value="ADMIN">ADMIN</option>
+              <option ${c.role==='MEMBER' ?'selected':''} value="MEMBER">MEMBER</option>
+              <option ${c.role==='VIEWER' ?'selected':''} value="VIEWER">VIEWER</option>
+            </select>
+            <button class="kick-btn" onclick="kickMember('${c.id}','${esc(c.name)}')">강퇴</button>
+          </div>` : badge;
+        return `<div class="team-row">
+          <span class="team-name">${esc(c.name)}${isMe?' <span style="color:#555;font-size:9px;">(나)</span>':''}</span>
+          ${controls}
+        </div>`;
+      }).join('')
+    : `<div style="color:#6a6a6a;font-size:11px;padding:4px 0;">접속한 팀원 없음</div>`;
+}
+
+function applyRole() {
+  const allowed = ROLE_PERMS[myRole] || [];
+  ['btnStart','btnStop','btnRestart','btnBuild','btnReload'].forEach(id => {
+    document.getElementById(id).disabled = !allowed.includes(id);
+  });
+}
+
+// ── playit.gg 통합 ───────────────────────────────────────────────────────
+let _playitRunning = false;
+
+async function togglePlayit() {
+  if (_playitRunning) {
+    await fetch('/api/playit/stop', { method: 'POST' });
+    _playitRunning = false;
+    document.getElementById('playitBtn').textContent = '▶ playit 시작';
+    document.getElementById('playitBtn').classList.remove('t-red');
+    document.getElementById('playitBtn').classList.add('t-green');
+    document.getElementById('playitClaim').style.display = 'none';
+    appendLog('[DevKit] playit 중지됨', 'devkit');
+  } else {
+    appendLog('[DevKit] playit 시작 중...', 'devkit');
+    const r = await fetch('/api/playit/start', { method: 'POST' });
+    if (!r.ok) {
+      const e = await r.json();
+      appendLog(`[DevKit] playit 시작 실패: ${e.error}`, 'error');
+      return;
+    }
+    _playitRunning = true;
+    document.getElementById('playitBtn').textContent = '■ playit 중지';
+    document.getElementById('playitBtn').classList.remove('t-green');
+    document.getElementById('playitBtn').classList.add('t-red');
+  }
+}
+
+function setPlayitClaim(url) {
+  const el = document.getElementById('playitClaim');
+  const urlEl = document.getElementById('playitClaimUrl');
+  if (url) {
+    el.style.display = '';
+    urlEl.textContent = url;
+    urlEl.dataset.url = url;
+    appendLog(`[DevKit] playit 계정 연결 필요 — 브라우저에서 URL을 열어주세요`, 'warn');
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function openPlayitClaim() {
+  const url = document.getElementById('playitClaimUrl').dataset.url;
+  if (!url) return;
+  if (isElectron) window.devkit.openExternal(url);
+  else window.open(url, '_blank');
+}
+
+// ── MC 서버 주소 ──────────────────────────────────────────────────────────
+function setMcAddr(addr) {
+  const chip = document.getElementById('mcAddrChip');
+  if (addr) {
+    chip.textContent = addr;
+    chip.className   = 'mc-addr-chip';
+  } else {
+    chip.textContent = '주소 미설정';
+    chip.className   = 'mc-addr-chip empty';
+  }
+}
+
+function toggleMcAddrEdit() {
+  const edit = document.getElementById('mcAddrEdit');
+  const btn  = document.getElementById('mcAddrEditBtn');
+  const open = edit.style.display === 'none';
+  edit.style.display = open ? '' : 'none';
+  btn.textContent    = open ? '취소' : '주소 설정';
+}
+
+async function saveMcAddr() {
+  const addr = document.getElementById('mcAddrInput').value.trim();
+  await fetch('/api/mc-address', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address: addr || null }),
+  });
+  setMcAddr(addr || null);
+  document.getElementById('mcAddrEdit').style.display = 'none';
+  document.getElementById('mcAddrEditBtn').textContent = '주소 설정';
+  appendLog(`[DevKit] 서버 주소 공유: ${addr || '(해제)'}`, 'devkit');
+}
+
+function copyMcAddr() {
+  const addr = document.getElementById('mcAddrChip').textContent;
+  if (addr && addr !== '주소 미설정') navigator.clipboard.writeText(addr);
+}
+
+// ── 플러그인 파일 관리 ────────────────────────────────────────────────────
+function fmtSize(bytes) {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes/1024).toFixed(1)}KB`;
+  return `${(bytes/1024/1024).toFixed(1)}MB`;
+}
+
+async function loadPlugins() {
+  const list = await fetch('/api/plugins').then(r => r.json()).catch(() => []);
+  const el = document.getElementById('pluginList');
+  el.innerHTML = list.map(p => `
+    <div class="plugin-item">
+      <span class="plugin-name" title="${esc(p.name)}">${esc(p.name)}</span>
+      <span class="plugin-size">${fmtSize(p.size)}</span>
+      <button class="plugin-del" onclick="deletePlugin('${esc(p.name)}')">✕</button>
+    </div>`).join('');
+}
+
+async function deletePlugin(name) {
+  if (!confirm(`${name} 을(를) 삭제하시겠습니까?`)) return;
+  await fetch(`/api/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  appendLog(`[DevKit] 플러그인 삭제: ${name}`, 'devkit');
+  loadPlugins();
+}
+
+function onJarDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-over');
+  uploadJarFiles([...e.dataTransfer.files]);
+}
+
+function onJarSelect(input) {
+  uploadJarFiles([...input.files]);
+  input.value = '';
+}
+
+async function uploadJarFiles(files) {
+  const jars = files.filter(f => f.name.endsWith('.jar'));
+  if (!jars.length) { appendLog('[DevKit] .jar 파일만 업로드 가능합니다', 'warn'); return; }
+
+  // 드롭존 비활성화 (업로드 중)
+  document.getElementById('dropZone').style.opacity = '.5';
+  document.getElementById('dropZone').style.pointerEvents = 'none';
+
+  for (const file of jars) {
+    appendLog(`[DevKit] 업로드 중: ${file.name} (${fmtSize(file.size)})`, 'devkit');
+    const data = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload  = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    const resp = await fetch('/api/plugins/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: file.name, data }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: '업로드 실패' }));
+      appendLog(`[DevKit] 업로드 실패: ${err.error}`, 'error');
+    }
+    // 로드/리로드 결과는 WebSocket 로그로 서버에서 직접 전송됨
+  }
+
+  document.getElementById('dropZone').style.opacity = '';
+  document.getElementById('dropZone').style.pointerEvents = '';
+  loadPlugins();
+}
+
+async function init() {
+  const [s, ps] = await Promise.all([
+    fetch('/api/status').then(r => r.json()),
+    fetch('/api/playit/status').then(r => r.json()).catch(() => ({})),
+  ]);
+  updateBadge(s.server);
+  if (s.tunnel) setTunnel(s.tunnel);
+  if (s.mcAddress) setMcAddr(s.mcAddress);
+  if (s.players?.length) renderPlayers(s.players);
+
+  // playit이 이미 실행 중이면 버튼 상태 복원
+  if (ps.running) {
+    _playitRunning = true;
+    document.getElementById('playitBtn').textContent = '■ playit 중지';
+    document.getElementById('playitBtn').classList.replace('t-green', 't-red');
+    if (ps.claimUrl) setPlayitClaim(ps.claimUrl);
+  }
+
+  await loadConfig();
+  await loadPlugins();
+  appendLog('[DevKit] MC DevKit 준비 완료', 'devkit');
+}
+
+init();
+connect();
+</script>
+</body>
+</html>

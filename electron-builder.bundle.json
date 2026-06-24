@@ -1,0 +1,6 @@
+{
+  "extraResources": [
+    { "from": "resources/jre",  "to": "jre",     "filter": ["**/*"] },
+    { "from": "resources",      "to": "bundled", "filter": ["paper-*.jar"] }
+  ]
+}
