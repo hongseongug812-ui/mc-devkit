@@ -8,6 +8,8 @@ const axios = require('axios');
 
 const PAPER_API    = 'https://api.papermc.io/v2/projects/paper';
 const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
+const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
+const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
 const JRE_DIR      = path.join(os.homedir(), '.mc-devkit', 'jre');
 
 class ServerManager {
@@ -15,10 +17,11 @@ class ServerManager {
     this.config    = config;
     this.onLog     = onLog;
     this.onCrash   = onCrash || (() => {});
-    this.process   = null;
-    this.status    = 'stopped';
-    this._javaPath = null;
-    this._stopping = false;   // 정상 종료 여부 추적
+    this.process    = null;
+    this.status     = 'stopped';
+    this._javaPath  = null;
+    this._stopping  = false;
+    this._crashTimes = [];   // 크래시 루프 감지용
   }
 
   // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────
@@ -141,7 +144,16 @@ class ServerManager {
 
   // ── Paper jar 확보 (번들 → 다운로드) ──────────────────────────────────────
   async _ensurePaper() {
-    const jarPath = path.join(this.config.serverDir, 'paper.jar');
+    const jarPath  = path.join(this.config.serverDir, 'paper.jar');
+    const verFile  = path.join(this.config.serverDir, '.paper-version');
+    const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
+
+    // 버전이 바뀌었으면 기존 jar 삭제 후 재다운로드
+    if (savedVer !== this.config.version && await fs.pathExists(jarPath)) {
+      this.onLog(`[DevKit] Paper 버전 변경 (${savedVer} → ${this.config.version}), 재다운로드 중...`);
+      await fs.remove(jarPath);
+    }
+
     if (await fs.pathExists(jarPath)) return;
 
     // 번들 Paper 확인 (배포 빌드 전용, 버전이 일치할 때만)
@@ -152,6 +164,7 @@ class ServerManager {
         this.onLog(`[DevKit] 번들 Paper ${this.config.version} 사용`);
         await fs.ensureDir(this.config.serverDir);
         await fs.copy(bundled, jarPath);
+        await fs.writeFile(verFile, this.config.version);
         return;
       }
     }
@@ -164,7 +177,50 @@ class ServerManager {
     await fs.ensureDir(this.config.serverDir);
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
     await fs.writeFile(jarPath, resp.data);
+    await fs.writeFile(verFile, this.config.version);
     this.onLog(`[DevKit] Paper 다운로드 완료 ✓`);
+  }
+
+  // ── Fabric 서버 설치 ────────────────────────────────────────────────────────
+  async _ensureFabric() {
+    const launchJar = path.join(this.config.serverDir, 'fabric-server-launch.jar');
+    const verFile   = path.join(this.config.serverDir, '.fabric-version');
+    const savedVer  = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
+
+    // 버전이 바뀌었으면 기존 jar 삭제 후 재설치
+    if (savedVer !== this.config.version && await fs.pathExists(launchJar)) {
+      this.onLog(`[DevKit] Fabric 버전 변경 (${savedVer} → ${this.config.version}), 재설치 중...`);
+      await fs.remove(launchJar);
+    }
+
+    if (await fs.pathExists(launchJar)) return;
+
+    await fs.ensureDir(this.config.serverDir);
+
+    // 최신 인스톨러 버전 조회 후 다운로드
+    this.onLog('[DevKit] Fabric 인스톨러 다운로드 중...');
+    const { data: versions } = await axios.get(FABRIC_META);
+    const ver = versions[0].version;
+    const installerUrl = `${FABRIC_MAVEN}/${ver}/fabric-installer-${ver}.jar`;
+    const instPath = path.join(this.config.serverDir, 'fabric-installer.jar');
+    const resp = await axios.get(installerUrl, { responseType: 'arraybuffer', maxRedirects: 10 });
+    await fs.writeFile(instPath, resp.data);
+
+    // 인스톨러 실행 → fabric-server-launch.jar 생성
+    this.onLog(`[DevKit] Fabric 서버 설치 중 (MC ${this.config.version})...`);
+    const javaPath = await this._ensureJava();
+    await new Promise((resolve, reject) => {
+      const proc = spawn(javaPath, [
+        '-jar', 'fabric-installer.jar',
+        'server', '-mcversion', this.config.version, '-downloadMinecraft',
+      ], { cwd: this.config.serverDir, stdio: ['pipe', 'pipe', 'pipe'] });
+      proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`)));
+      proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`)));
+      proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Fabric 설치 실패 (exit ${code})`)));
+      proc.on('error', reject);
+    });
+    await fs.writeFile(verFile, this.config.version);
+    this.onLog('[DevKit] Fabric 설치 완료 ✓');
   }
 
   // ── server.properties 자동 설정 ────────────────────────────────────────────
@@ -179,32 +235,235 @@ class ServerManager {
       return re.test(props) ? props.replace(re, `${key}=${val}`) : props + `\n${key}=${val}`;
     };
 
+    // 필수 설정
     props = set('enable-rcon',   'true');
     props = set('rcon.port',     '25575');
     props = set('rcon.password', this.config.rconPassword);
-    props = set('online-mode',   'false');
+    props = set('online-mode',   'true');
+
+    // 핑·TPS 최적화 (이미 설정된 경우 덮어쓰지 않음)
+    const setIfNew = (key, val) => {
+      const re = new RegExp(`^${key}=`, 'm');
+      if (!re.test(props)) props = props + `\n${key}=${val}`;
+    };
+    setIfNew('view-distance',               '6');   // 청크 거리 축소 → TPS↑
+    setIfNew('simulation-distance',         '4');   // 엔티티 시뮬 범위 축소 → TPS↑
+    setIfNew('network-compression-threshold','256'); // 소형 패킷 압축 스킵 → 핑↓
+    setIfNew('use-native-transport',        'true'); // Netty 네이티브 I/O
+    setIfNew('entity-broadcast-range-percentage', '75'); // 엔티티 브로드캐스트 범위 축소
+    setIfNew('max-tick-time',               '-1');  // 서버 워치독 비활성화 (개발용)
+
     await fs.writeFile(propsPath, props);
+  }
+
+  // ── Fabric 성능 모드 자동 설치 ──────────────────────────────────────────
+  async _ensureFabricPerfMods() {
+    // Lithium: 게임 로직 최적화 (TPS)
+    // Krypton: 네트워크 스택 최적화 (핑 감소)
+    // FerriteCore: 메모리 절약 (GC 감소)
+    const PERF_MODS = [
+      { id: 'lithium',     name: 'Lithium'     },
+      { id: 'krypton',     name: 'Krypton'     },
+      { id: 'ferrite-core',name: 'FerriteCore' },
+    ];
+
+    const modsDir = path.join(this.config.serverDir, 'mods');
+    await fs.ensureDir(modsDir);
+
+    const mcVer = this.config.version;
+
+    for (const mod of PERF_MODS) {
+      const marker = path.join(modsDir, `.perfmod_${mod.id}`);
+      if (await fs.pathExists(marker)) continue;
+
+      try {
+        this.onLog(`[DevKit] ${mod.name} 성능 모드 설치 중...`);
+
+        const { data: versions } = await axios.get(
+          `https://api.modrinth.com/v2/project/${mod.id}/version`,
+          {
+            params: {
+              loaders:       JSON.stringify(['fabric']),
+              game_versions: JSON.stringify([mcVer]),
+            },
+            headers: { 'User-Agent': 'mc-devkit/1.0' },
+            timeout: 10000,
+          }
+        );
+
+        if (!versions?.length) {
+          this.onLog(`[DevKit] ${mod.name}: MC ${mcVer} 호환 버전 없음 — 건너뜀`);
+          continue;
+        }
+
+        const file = versions[0].files.find(f => f.primary) || versions[0].files[0];
+        if (!file) continue;
+
+        const resp = await axios.get(file.url, {
+          responseType: 'arraybuffer', maxRedirects: 10, timeout: 30000,
+          headers: { 'User-Agent': 'mc-devkit/1.0' },
+        });
+
+        const dest = path.join(modsDir, file.filename);
+        await fs.writeFile(dest, resp.data);
+        await fs.writeFile(marker, '');   // 설치 완료 마커
+        this.onLog(`[DevKit] ${mod.name} 설치 완료 ✓ (${file.filename})`);
+      } catch (e) {
+        this.onLog(`[DevKit] ${mod.name} 설치 실패 — ${e.message}`);
+      }
+    }
+  }
+
+  // ── Paper 성능 config 자동 생성 ──────────────────────────────────────────
+  async _writePaperConfig() {
+    // paper-global.yml (Paper 1.19+)
+    const globalDir  = path.join(this.config.serverDir, 'config');
+    const globalFile = path.join(globalDir, 'paper-global.yml');
+    await fs.ensureDir(globalDir);
+
+    if (!await fs.pathExists(globalFile)) {
+      await fs.writeFile(globalFile, [
+        '# Auto-generated by MC DevKit for performance',
+        'chunk-loading-basic:',
+        '  autoconfig-send-distance: true',
+        'chunk-system:',
+        '  worker-threads: -1',          // CPU 수에 맞게 자동
+        'misc:',
+        '  use-alternative-luck-formula: false',
+        'packet-limiter:',
+        '  max-packet-rate: 500.0',      // 패킷 제한 완화 (dev server)
+        'timings:',
+        '  enabled: false',              // timings 비활성화 → 오버헤드 제거
+        '',
+      ].join('\n'));
+    }
+
+    // paper-world-defaults.yml (Paper 1.19+)
+    const worldFile = path.join(globalDir, 'paper-world-defaults.yml');
+    if (!await fs.pathExists(worldFile)) {
+      await fs.writeFile(worldFile, [
+        '# Auto-generated by MC DevKit for performance',
+        'chunks:',
+        '  auto-save-interval: 12000',   // 10분마다 저장 (기본 6000=5분) → 세이브 스파이크 감소
+        '  delay-chunk-unloads-by: 10s',
+        '  entity-per-chunk-save-limit:',
+        '    experience_orb: 64',
+        '    arrow: 16',
+        '    dragon_fireball: 3',
+        '    egg: 8',
+        '    fireball: 8',
+        '    small_fireball: 8',
+        '    firework_rocket: 8',
+        '    snowball: 8',
+        '    spectral_arrow: 16',
+        '    experience_bottle: 3',
+        'entities:',
+        '  spawning:',
+        '    per-player-mob-spawns: true', // 플레이어별 몹 스폰 → 스폰 루프 최적화
+        '    despawn-ranges:',
+        '      ambient:   { hard: 72, soft: 32 }',
+        '      axolotls:  { hard: 72, soft: 32 }',
+        '      creature:  { hard: 72, soft: 32 }',
+        '      monster:   { hard: 72, soft: 32 }',
+        '      misc:      { hard: 72, soft: 32 }',
+        '      underground_water_creature: { hard: 72, soft: 32 }',
+        '      water_ambient:  { hard: 72, soft: 32 }',
+        '      water_creature: { hard: 72, soft: 32 }',
+        'environment:',
+        '  optimize-explosions: true',
+        '  treasure-maps:',
+        '    enabled: false',            // 보물 지도 검색 → 심각한 lag 유발
+        'misc:',
+        '  max-leash-distance: 10.0',
+        '  redstone-implementation: ALTERNATE_CURRENT', // 최적화된 레드스톤 엔진
+        '',
+      ].join('\n'));
+    }
+  }
+
+  // ── 포트 25565 점유 프로세스 강제 종료 (고아 JVM 정리) ───────────────────────
+  async _killOrphan() {
+    if (process.platform !== 'win32') return;
+    try {
+      const out = execSync('netstat -ano 2>nul', { encoding: 'utf8', timeout: 5000 });
+      const lines = out.split('\n').filter(l => l.includes(':25565') && l.includes('LISTENING'));
+      for (const line of lines) {
+        const m = line.trim().split(/\s+/).pop();
+        if (m && /^\d+$/.test(m) && m !== '0') {
+          this.onLog(`[DevKit] 고아 서버 프로세스(PID ${m}) 종료 중...`);
+          execSync(`taskkill /F /PID ${m} 2>nul`, { stdio: 'ignore', timeout: 5000 });
+        }
+      }
+      // 종료 완료 대기
+      execSync('ping -n 2 127.0.0.1 > nul', { stdio: 'ignore', timeout: 3000 });
+    } catch { /* 고아 없음 또는 이미 종료됨 */ }
   }
 
   // ── 서버 시작 (완전 자동) ──────────────────────────────────────────────────
   async start() {
     if (this.status !== 'stopped') throw new Error('서버가 이미 실행 중입니다.');
+    await this._killOrphan();
 
     this.status    = 'starting';
     this._stopping = false;
 
     try {
-      const javaPath = await this._ensureJava();  // Java 자동 확보
-      await this._ensurePaper();                  // Paper 자동 다운로드
-      await this._ensurePlugManX();               // PlugManX 자동 설치
+      const javaPath = await this._ensureJava();
       await fs.writeFile(path.join(this.config.serverDir, 'eula.txt'), 'eula=true\n');
       await this._writeServerProps();
 
-      this.onLog('[DevKit] 서버 시작 중...');
+      let jarArgs;
+      if (this.config.serverType === 'fabric') {
+        await this._ensureFabric();
+        jarArgs = ['fabric-server-launch.jar', 'nogui'];
+        this.onLog('[DevKit] Fabric 서버 시작 중...');
+      } else {
+        await this._ensurePaper();
+        await this._ensurePlugManX();
+        jarArgs = ['paper.jar', '--nogui'];
+        this.onLog('[DevKit] Paper 서버 시작 중...');
+      }
+
+      const cpuCount  = os.cpus().length;
+      const gcThreads = Math.min(cpuCount, 8);
+
+      const aikarFlags = [
+        '-XX:+UseG1GC',
+        '-XX:+ParallelRefProcEnabled',
+        '-XX:MaxGCPauseMillis=200',
+        '-XX:+UnlockExperimentalVMOptions',
+        '-XX:+DisableExplicitGC',
+        '-XX:+AlwaysPreTouch',
+        '-XX:G1NewSizePercent=30',
+        '-XX:G1MaxNewSizePercent=40',
+        '-XX:G1HeapRegionSize=8M',
+        '-XX:G1ReservePercent=20',
+        '-XX:G1HeapWastePercent=5',
+        '-XX:G1MixedGCCountTarget=4',
+        '-XX:InitiatingHeapOccupancyPercent=15',
+        '-XX:G1MixedGCLiveThresholdPercent=90',
+        '-XX:G1RSetUpdatingPauseTimePercent=5',
+        '-XX:SurvivorRatio=32',
+        `-XX:ParallelGCThreads=${gcThreads}`,
+        `-XX:ConcGCThreads=${Math.max(1, Math.floor(gcThreads / 4))}`,
+        '-Dusing.aikars.flags=https://mcflags.emc.gs',
+        '-Daikars.new.flags=true',
+      ];
+
+      if (this.config.serverType === 'fabric') {
+        await this._ensureFabricPerfMods();
+      } else {
+        await this._writePaperConfig();
+      }
 
       this.process = spawn(
         javaPath,
-        [`-Xmx${this.config.memory}`, `-Xms${this.config.memory}`, '-jar', 'paper.jar', '--nogui'],
+        [
+          `-Xmx${this.config.memory}`,
+          `-Xms${this.config.memory}`,
+          ...aikarFlags,
+          '-jar', ...jarArgs,
+        ],
         { cwd: this.config.serverDir, stdio: ['pipe', 'pipe', 'pipe'] }
       );
     } catch (err) {
@@ -240,11 +499,20 @@ class ServerManager {
       this.onLog(`[DevKit] 서버 종료됨 (exit code: ${code})`);
 
       if (crashed) {
-        this.onLog('[DevKit] ⚠ 비정상 종료 감지 — 10초 후 자동 재시작...');
-        this.onCrash();
-        setTimeout(() => {
-          this.start().catch(e => this.onLog(`[DevKit] 자동 재시작 실패: ${e.message}`));
-        }, 10000);
+        const now = Date.now();
+        this._crashTimes = this._crashTimes.filter(t => now - t < 60000);
+        this._crashTimes.push(now);
+
+        if (this._crashTimes.length >= 3) {
+          this.onLog('[DevKit] ✖ 1분 내 3회 이상 크래시 — 자동 재시작 중단. 수동으로 시작해주세요.');
+          this._crashTimes = [];
+        } else {
+          this.onLog('[DevKit] ⚠ 비정상 종료 감지 — 10초 후 자동 재시작...');
+          this.onCrash();
+          setTimeout(() => {
+            this.start().catch(e => this.onLog(`[DevKit] 자동 재시작 실패: ${e.message}`));
+          }, 10000);
+        }
       }
     });
   }

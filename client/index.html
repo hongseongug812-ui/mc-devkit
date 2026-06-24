@@ -48,6 +48,13 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    #bgOverlay {
+      position: fixed; inset: 0; z-index: 0;
+      pointer-events: none;
+      background-size: cover; background-position: center; background-repeat: no-repeat;
+      transition: opacity .3s;
+    }
+
     body {
       background: var(--mc-bg2);
       color: var(--mc-white);
@@ -181,7 +188,8 @@
     @keyframes mc-blink { 0%,100%{opacity:1} 50%{opacity:.45} }
 
     /* ── 레이아웃 ── */
-    .layout { display: flex; flex: 1; overflow: hidden; }
+    .layout { display: flex; flex: 1; overflow: hidden; position: relative; z-index: 1; }
+    #titlebar { position: relative; z-index: 1; }
 
     /* ── 사이드바 ── */
     .sidebar {
@@ -459,6 +467,21 @@
     .log-info   .log-msg { color: var(--mc-gray); }
     .log-entry-bg:nth-child(even) { background: rgba(255,255,255,.025); }
 
+    /* ── 명령어 자동완성 ── */
+    .cmd-wrap { position: relative; flex: 1; }
+    #cmdSuggest {
+      position: absolute; bottom: calc(100% + 4px); left: 0; right: 0;
+      background: #1e1e1e; border: 1px solid #4a4a4a; border-radius: 4px;
+      max-height: 180px; overflow-y: auto; z-index: 200;
+      box-shadow: 0 -4px 12px rgba(0,0,0,.6);
+    }
+    .cmd-item {
+      padding: 5px 10px; font-family: 'Consolas', monospace; font-size: 12px;
+      cursor: pointer; color: var(--mc-white); white-space: nowrap;
+    }
+    .cmd-item:hover, .cmd-item.active { background: rgba(85,255,85,.15); color: var(--mc-green); }
+    .cmd-item .cmd-hint { color: var(--mc-gray); margin-left: 6px; font-size: 11px; }
+
     /* ── 모달 ── */
     .modal-overlay {
       position: fixed; inset: 0;
@@ -487,6 +510,8 @@
 </head>
 <body>
 
+<div id="bgOverlay"></div>
+
 <!-- ── 타이틀바 ── -->
 <div id="titlebar">
   <div class="titlebar-left">
@@ -494,9 +519,12 @@
     <span id="serverBadge" class="mc-badge badge-stopped">OFFLINE</span>
   </div>
   <div class="titlebar-right">
+    <span id="tpsChip" style="display:none;font-size:11px;padding:2px 7px;border-radius:3px;border:1px solid #555;"></span>
+    <span id="pingChip" style="font-size:11px;padding:2px 7px;border-radius:3px;border:1px solid #555;color:#aaa;">핑 --ms</span>
     <span id="tunnelChip">터널 없음</span>
     <button class="mc-btn t-aqua xs" onclick="startTunnel()">터널 켜기</button>
     <button class="mc-btn xs"        onclick="stopTunnel()">터널 끄기</button>
+    <button class="mc-btn xs" onclick="openBgModal()" title="배경 설정">🎨</button>
   </div>
 </div>
 
@@ -513,7 +541,15 @@
         <button id="btnStart"   class="mc-btn t-green sm" onclick="action('start')">시작</button>
         <button id="btnStop"    class="mc-btn t-red   sm" onclick="action('stop')">중지</button>
         <button id="btnRestart" class="mc-btn t-yellow sm" onclick="action('restart')">재시작</button>
-        <button id="btnBackup"  class="mc-btn sm" onclick="doBackup()" title="월드 백업 (tar.gz)">백업</button>
+        <button id="btnBackup"  class="mc-btn sm" onclick="doBackup()" title="월드 백업 (zip)">백업</button>
+      </div>
+      <div class="mc-row" style="gap:6px;margin-top:6px;">
+        <button class="mc-btn xs t-red" onclick="deleteWorld()" style="flex:1;">월드 삭제</button>
+        <button class="mc-btn xs t-green" onclick="newWorld()" style="flex:1;">새 월드</button>
+        <label class="mc-btn xs" style="flex:1;text-align:center;cursor:pointer;margin:0;">
+          맵 업로드
+          <input type="file" accept=".zip" style="display:none" onchange="uploadWorld(this)"/>
+        </label>
       </div>
     </div>
 
@@ -526,8 +562,8 @@
       </div>
     </div>
 
-    <!-- 플러그인 파일 관리 -->
-    <div class="mc-section">
+    <!-- 플러그인 파일 관리 (Paper) -->
+    <div class="mc-section plugin-only">
       <div class="mc-section-title">플러그인 파일</div>
       <div class="drop-zone" id="dropZone" onclick="document.getElementById('jarInput').click()"
            ondragover="event.preventDefault();this.classList.add('drag-over')"
@@ -539,14 +575,32 @@
       <div id="pluginList"></div>
     </div>
 
+    <!-- 모드 파일 관리 (Fabric) -->
+    <div class="mc-section fabric-only" style="display:none">
+      <div class="mc-section-title">모드 파일</div>
+      <div class="drop-zone" id="modDropZone" onclick="document.getElementById('modInput').click()"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="onModDrop(event)">
+        <input type="file" id="modInput" accept=".jar" multiple onchange="onModSelect(this)">
+        ▲ 모드 .jar 파일을 여기에 드롭하거나 클릭
+      </div>
+      <div id="modList"></div>
+    </div>
+
     <!-- 명령어 -->
     <div class="mc-section">
       <div class="mc-section-title">명령어
         <span id="cmdModeLabel" style="color:var(--mc-gray);font-size:9px;font-weight:400;margin-left:6px;">RCON</span>
       </div>
       <div class="mc-row" style="margin-bottom:6px;">
-        <input id="cmdInput" type="text" class="mc-inp" placeholder="/say Hello"
-          onkeydown="if(event.key==='Enter') sendCmd()"/>
+        <div class="cmd-wrap">
+          <div id="cmdSuggest" style="display:none;"></div>
+          <input id="cmdInput" type="text" class="mc-inp" placeholder="/say Hello"
+            oninput="onCmdInput()"
+            onkeydown="onCmdKey(event)"
+            onblur="setTimeout(()=>hideSuggest(),150)"/>
+        </div>
         <button class="mc-btn xs" onclick="sendCmd()" style="width:auto;flex-shrink:0;padding:8px 12px;">전송</button>
       </div>
       <button id="btnStdinToggle" class="mc-btn xs" onclick="toggleStdinMode()"
@@ -557,7 +611,7 @@
     <div class="mc-section">
       <div class="mc-section-title">설정</div>
       <div class="mc-col">
-        <div>
+        <div class="plugin-only">
           <label class="mc-label">플러그인 이름</label>
           <input id="cfgPlugin" type="text" class="mc-inp"/>
         </div>
@@ -575,44 +629,18 @@
             <button class="mc-btn xs" onclick="pickDir('cfgServer')" style="width:auto;flex-shrink:0;">찾기</button>
           </div>
         </div>
+        <div>
+          <label class="mc-label">서버 종류</label>
+          <select id="cfgServerType" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;" onchange="onServerTypeChange()">
+            <option value="paper">Paper (플러그인)</option>
+            <option value="fabric">Fabric (모드)</option>
+          </select>
+        </div>
         <div class="mc-grid2">
           <div>
-            <label class="mc-label">Paper 버전</label>
+            <label class="mc-label" id="cfgVersionLabel">MC 버전</label>
             <select id="cfgVersion" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
-              <optgroup label="1.21.x">
-                <option>1.21.4</option>
-                <option>1.21.3</option>
-                <option>1.21.1</option>
-              </optgroup>
-              <optgroup label="1.20.x">
-                <option>1.20.6</option>
-                <option>1.20.4</option>
-                <option>1.20.2</option>
-                <option>1.20.1</option>
-              </optgroup>
-              <optgroup label="1.19.x">
-                <option>1.19.4</option>
-                <option>1.19.3</option>
-                <option>1.19.2</option>
-                <option>1.19.1</option>
-                <option>1.19</option>
-              </optgroup>
-              <optgroup label="1.18.x">
-                <option>1.18.2</option>
-                <option>1.18.1</option>
-                <option>1.18</option>
-              </optgroup>
-              <optgroup label="1.17.x">
-                <option>1.17.1</option>
-                <option>1.17</option>
-              </optgroup>
-              <optgroup label="1.16.x">
-                <option>1.16.5</option>
-                <option>1.16.4</option>
-                <option>1.16.3</option>
-                <option>1.16.2</option>
-                <option>1.16.1</option>
-              </optgroup>
+              <option>로딩 중...</option>
             </select>
           </div>
           <div>
@@ -627,14 +655,27 @@
       </div>
     </div>
 
-    <!-- 팀원 초대 -->
+    <!-- playit secret key -->
     <div class="mc-section">
-      <div class="mc-section-title">팀원 초대</div>
-      <div id="inviteUrl" class="invite-placeholder">터널 시작 후 URL 표시</div>
-      <div class="mc-row">
-        <button class="mc-btn sm" onclick="copyUrl()">URL 복사</button>
-        <button class="mc-btn sm" onclick="openBrowser()" style="width:auto;flex-shrink:0;padding:8px 12px;">열기</button>
+      <div class="mc-section-title">playit.gg 연결</div>
+      <div style="font-size:10px;color:var(--mc-gray);margin-bottom:6px;line-height:1.5;">
+        playit.gg → Agents → Create Agent → Secret Key 복사
       </div>
+      <div class="mc-row" style="gap:6px;">
+        <input id="playitSecretInput" type="password" class="mc-inp" placeholder="secret key 입력" style="flex:1;"/>
+        <button class="mc-btn xs t-green" onclick="savePlayitSecret()">저장</button>
+      </div>
+      <div id="playitStatus" style="font-size:10px;color:var(--mc-gray);margin-top:4px;"></div>
+    </div>
+
+    <!-- 서버 접속 주소 -->
+    <div class="mc-section">
+      <div class="mc-section-title">서버 접속 주소</div>
+      <div id="inviteUrl" class="invite-placeholder" onclick="copyUrl()" title="클릭하여 복사" style="cursor:pointer;">터널 시작 후 주소 표시</div>
+      <div class="mc-row" style="gap:6px;margin-top:6px;">
+        <button class="mc-btn sm t-green" onclick="copyUrl()" style="flex:1;">주소 복사</button>
+      </div>
+      <div id="copyToast" style="font-size:10px;color:var(--mc-green);margin-top:3px;display:none;">복사됨!</div>
     </div>
 
   </div>
@@ -659,7 +700,7 @@
   <!-- ── 오른쪽 사이드바 ── -->
   <div class="right-sidebar">
 
-    <!-- MC 서버 접속 주소 + playit 통합 -->
+    <!-- MC 서버 접속 주소 + bore 통합 -->
     <div class="mc-section">
       <div class="mc-section-title">서버 접속 주소</div>
 
@@ -667,25 +708,14 @@
       <div class="mc-addr-chip empty" id="mcAddrChip">주소 없음</div>
       <div class="mc-row" style="margin-bottom:8px;">
         <button class="mc-btn xs" onclick="copyMcAddr()">복사</button>
-        <button class="mc-btn xs t-green" id="playitBtn" onclick="togglePlayit()" style="flex:1;">▶ playit 시작</button>
+        <button class="mc-btn xs t-green" id="ngrokBtn" onclick="toggleNgrok()" style="flex:1;">▶ playit 터널 시작</button>
       </div>
 
-      <!-- playit claim URL (계정 연결 필요할 때만 표시) -->
-      <div id="playitClaim" style="display:none;margin-bottom:8px;">
-        <div style="color:var(--mc-gold);font-size:10px;margin-bottom:5px;line-height:1.6;">
-          아래 URL을 브라우저에서 열어<br>playit 계정과 연결하세요:
-        </div>
-        <div id="playitClaimUrl" style="font-size:9px;color:var(--mc-aqua);word-break:break-all;
-          background:rgba(0,0,0,.3);padding:5px;border:1px solid #333;cursor:pointer;"
-          onclick="openPlayitClaim()"></div>
-        <button class="mc-btn xs" style="margin-top:5px;" onclick="openPlayitClaim()">브라우저에서 열기</button>
-      </div>
-
-      <!-- 수동 입력 (playit 외 서비스용) -->
+      <!-- 수동 주소 입력 -->
       <div id="mcAddrEdit" style="display:none">
         <div class="mc-col">
           <div>
-            <label class="mc-label">직접 입력 (선택)</label>
+            <label class="mc-label">직접 입력</label>
             <input id="mcAddrInput" type="text" class="mc-inp" placeholder="예) xxx.joinmc.link:25565"/>
           </div>
           <button class="mc-btn sm" onclick="saveMcAddr()">공유하기</button>
@@ -722,8 +752,9 @@
       <button class="mc-btn sm" onclick="savePermissions()">권한 저장</button>
     </div>
 
+
     <!-- 빌드 명령어 (OWNER만 표시) -->
-    <div class="mc-section" id="buildCmdSection" style="display:none">
+    <div class="mc-section plugin-only" id="buildCmdSection" style="display:none">
       <div class="mc-section-title">빌드 명령어</div>
       <div class="mc-col">
         <div>
@@ -757,13 +788,55 @@
   </div>
 </div>
 
+<!-- ── 배경 설정 모달 ── -->
+<div id="bgModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeBgModal()">
+  <div class="modal-box" style="width:320px;">
+    <div class="modal-title">배경 설정</div>
+    <div class="mc-col" style="gap:10px;">
+
+      <div>
+        <label class="mc-label">이미지 업로드</label>
+        <label class="mc-btn sm" style="display:block;text-align:center;cursor:pointer;">
+          이미지 선택
+          <input type="file" accept="image/*" style="display:none" onchange="onBgImageSelect(this)"/>
+        </label>
+      </div>
+
+      <div>
+        <label class="mc-label">이미지 URL</label>
+        <div class="mc-row" style="gap:6px;">
+          <input id="bgUrlInput" type="text" class="mc-inp" placeholder="https://..."/>
+          <button class="mc-btn xs" onclick="applyBgUrl()">적용</button>
+        </div>
+      </div>
+
+      <div>
+        <label class="mc-label">오버레이 투명도 <span id="bgOpacityVal">70%</span></label>
+        <input type="range" id="bgOpacity" min="0" max="95" value="70" style="width:100%;accent-color:var(--mc-green);"
+          oninput="document.getElementById('bgOpacityVal').textContent=this.value+'%'; applyBgOverlay()"/>
+      </div>
+
+      <div>
+        <label class="mc-label">블러</label>
+        <input type="range" id="bgBlur" min="0" max="20" value="0" style="width:100%;accent-color:var(--mc-aqua);"
+          oninput="applyBgOverlay()"/>
+      </div>
+
+      <div class="mc-row" style="gap:6px;">
+        <button class="mc-btn sm t-red" onclick="resetBg()" style="flex:1;">초기화</button>
+        <button class="mc-btn sm t-green" onclick="closeBgModal()" style="flex:1;">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // 버튼 ID → 액션 키 매핑 (서버 권한과 동기화용)
 const ACTION_BTN = { start:'btnStart', stop:'btnStop', restart:'btnRestart', build:'btnBuild', reload:'btnReload' };
 const ROLE_PERMS = {
   OWNER:  ['btnStart','btnStop','btnRestart','btnBuild','btnReload'],
-  ADMIN:  ['btnRestart','btnBuild','btnReload'],
-  MEMBER: ['btnBuild','btnReload'],
+  ADMIN:  ['btnStart','btnStop','btnRestart','btnBuild','btnReload'],
+  MEMBER: ['btnStart','btnStop','btnRestart','btnBuild','btnReload'],
   VIEWER: [],
 };
 const ROLE_CLASS = { OWNER:'role-owner', ADMIN:'role-admin', MEMBER:'role-member', VIEWER:'role-viewer' };
@@ -779,6 +852,7 @@ const PERM_ACTIONS = [
 ];
 
 let ws = null, myRole = null, tunnelUrl = null, allLogs = [], myToken = null, stdinMode = false;
+let _pingTimer = null;
 const isElectron = typeof window.devkit !== 'undefined';
 
 function connect() {
@@ -801,9 +875,16 @@ function connect() {
     const name  = localStorage.getItem('devkit_name') || 'Steve';
     if (token) ws.send(JSON.stringify({ type:'AUTH', name, token }));
     else       document.getElementById('authModal').style.display = 'flex';
+
+    // 20초마다 앱 레벨 ping (방화벽/프록시 idle 타임아웃 방지)
+    clearInterval(_pingTimer);
+    _pingTimer = setInterval(() => {
+      if (ws?.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: 'PING', ts: Date.now() }));
+    }, 5000);
   };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
-  ws.onclose   = ()  => setTimeout(connect, 2000);
+  ws.onclose   = () => { clearInterval(_pingTimer); setTimeout(connect, 1000); };
 }
 
 function handle(msg) {
@@ -816,12 +897,15 @@ function handle(msg) {
       if (msg.permissions) syncPermissions(msg.permissions);
       applyRole();
       const ownerNow = myRole === 'OWNER';
-      document.getElementById('permSection').style.display     = ownerNow ? '' : 'none';
-      document.getElementById('buildCmdSection').style.display = ownerNow ? '' : 'none';
+      document.getElementById('permSection').style.display        = ownerNow ? '' : 'none';
+      document.getElementById('buildCmdSection').style.display    = ownerNow ? '' : 'none';
       if (ownerNow && msg.permissions) renderPermMatrix(msg.permissions);
       break;
     }
     case 'LOG':         appendLog(msg.line);                              break;
+    case 'LOGS':        msg.lines.forEach(l => appendLog(l));             break;
+    case 'PONG':        updatePing(msg.ts);                               break;
+    case 'TPS_UPDATE':  updateTps(msg.tps);                               break;
     case 'STATUS':      updateBadge(msg.status); setTunnel(msg.tunnelUrl); break;
     case 'TEAM_UPDATE': renderTeam(msg.clients);                          break;
     case 'ACTION_LOG':  appendLog(`[팀] ${msg.message}`, 'devkit');       break;
@@ -829,7 +913,7 @@ function handle(msg) {
       appendLog(`> ${msg.command}`, 'devkit');
       if (msg.result) appendLog(msg.result); break;
     case 'MC_ADDRESS':     setMcAddr(msg.address);                        break;
-    case 'PLAYIT_CLAIM':  setPlayitClaim(msg.url);                       break;
+    case 'PLAYIT_CLAIM':  showPlayitClaim(msg.url);                      break;
     case 'PLAYERS_UPDATE': renderPlayers(msg.players || []);             break;
     case 'SERVER_CRASH':
       appendLog('[DevKit] ⚠ 서버 비정상 종료 — 10초 후 자동 재시작...', 'error');
@@ -881,6 +965,7 @@ async function savePermissions() {
   appendLog('[DevKit] 권한 설정이 저장되었습니다', 'devkit');
 }
 
+
 async function saveBuildCmd() {
   const cmd = document.getElementById('cfgBuildCmd').value.trim();
   await fetch('/api/config', {
@@ -907,6 +992,165 @@ function authenticate() {
 }
 
 function action(act) { ws.send(JSON.stringify({ type:'ACTION', action: act })); }
+
+// ── 명령어 자동완성 ───────────────────────────────────────────────────────
+const MC_CMDS = [
+  ['/advancement',     'grant|revoke'],
+  ['/attribute',       '<entity> <attr>'],
+  ['/ban',             '<player> [reason]'],
+  ['/ban-ip',          '<ip>'],
+  ['/banlist',         'players|ips'],
+  ['/bossbar',         'add|get|list|remove|set'],
+  ['/clear',           '[player] [item]'],
+  ['/clone',           '<from> <to> <dest>'],
+  ['/damage',          '<entity> <amount>'],
+  ['/data',            'get|merge|modify|remove'],
+  ['/datapack',        'disable|enable|list'],
+  ['/debug',           'start|stop|report'],
+  ['/defaultgamemode', 'survival|creative|adventure|spectator'],
+  ['/deop',            '<player>'],
+  ['/difficulty',      'peaceful|easy|normal|hard'],
+  ['/effect',          'give|clear'],
+  ['/enchant',         '<player> <enchantment> [level]'],
+  ['/execute',         'as|at|if|run|unless|...'],
+  ['/experience',      'add|query|set'],
+  ['/fill',            '<from> <to> <block>'],
+  ['/forceload',       'add|remove|query'],
+  ['/gamemode',        'survival|creative|adventure|spectator'],
+  ['/gamerule',        'doDaylightCycle|doMobSpawning|keepInventory|...'],
+  ['/give',            '<player> <item> [count]'],
+  ['/help',            '[command]'],
+  ['/item',            'modify|replace'],
+  ['/kick',            '<player> [reason]'],
+  ['/kill',            '[targets]'],
+  ['/list',            ''],
+  ['/locate',          'biome|poi|structure'],
+  ['/loot',            'give|insert|replace|spawn'],
+  ['/me',              '<action>'],
+  ['/msg',             '<player> <message>'],
+  ['/op',              '<player>'],
+  ['/pardon',          '<player>'],
+  ['/pardon-ip',       '<ip>'],
+  ['/particle',        '<particle> [pos]'],
+  ['/place',           'feature|jigsaw|structure|template'],
+  ['/playsound',       '<sound> <source> <player>'],
+  ['/reload',          ''],
+  ['/save-all',        '[flush]'],
+  ['/save-off',        ''],
+  ['/save-on',         ''],
+  ['/say',             '<message>'],
+  ['/schedule',        'clear|function'],
+  ['/scoreboard',      'objectives|players'],
+  ['/seed',            ''],
+  ['/setblock',        '<pos> <block>'],
+  ['/setworldspawn',   '[pos]'],
+  ['/spawnpoint',      '[player] [pos]'],
+  ['/spreadplayers',   '<center> <spread> <max> <teams> <targets>'],
+  ['/stop',            ''],
+  ['/stopsound',       '<player> [source] [sound]'],
+  ['/summon',          '<entity> [pos]'],
+  ['/tag',             '<targets> add|remove|list'],
+  ['/team',            'add|empty|join|leave|list|modify|remove'],
+  ['/teleport',        '<dest>  또는  <target> <dest>'],
+  ['/tell',            '<player> <message>'],
+  ['/time',            'add|query|set — day|night|noon|midnight'],
+  ['/title',           '<player> title|subtitle|actionbar|times|clear'],
+  ['/tp',              '<dest>'],
+  ['/weather',         'clear|rain|thunder [duration]'],
+  ['/whitelist',       'add|remove|list|on|off|reload'],
+  ['/worldborder',     'add|center|damage|get|set|warning'],
+  ['/xp',              'add|query|set'],
+  ['/plugman',         'reload|load|unload|list'],
+];
+
+let _suggestIdx = -1;
+let _suggestList = [];
+
+function onCmdInput() {
+  const val = document.getElementById('cmdInput').value;
+  if (!val.startsWith('/')) { hideSuggest(); return; }
+  const q = val.toLowerCase();
+  _suggestList = MC_CMDS.filter(([cmd]) => cmd.startsWith(q));
+  _suggestIdx  = -1;
+  renderSuggest();
+}
+
+function renderSuggest() {
+  const box = document.getElementById('cmdSuggest');
+  if (!_suggestList.length) { box.style.display = 'none'; return; }
+  box.innerHTML = _suggestList.slice(0, 12).map(([cmd, hint], i) =>
+    `<div class="cmd-item${i === _suggestIdx ? ' active' : ''}" onmousedown="pickSuggest(${i})">
+      ${esc(cmd)}<span class="cmd-hint">${esc(hint)}</span>
+    </div>`
+  ).join('');
+  box.style.display = '';
+}
+
+function onCmdKey(e) {
+  const visible = document.getElementById('cmdSuggest').style.display !== 'none';
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (!visible && document.getElementById('cmdInput').value) { onCmdInput(); return; }
+    if (!_suggestList.length) return;
+    _suggestIdx = (_suggestIdx + 1) % Math.min(_suggestList.length, 12);
+    renderSuggest();
+    document.getElementById('cmdInput').value = _suggestList[_suggestIdx][0] + ' ';
+  } else if (e.key === 'ArrowUp' && visible) {
+    e.preventDefault();
+    _suggestIdx = (_suggestIdx - 1 + Math.min(_suggestList.length, 12)) % Math.min(_suggestList.length, 12);
+    renderSuggest();
+    document.getElementById('cmdInput').value = _suggestList[_suggestIdx][0] + ' ';
+  } else if (e.key === 'ArrowDown' && visible) {
+    e.preventDefault();
+    _suggestIdx = (_suggestIdx + 1) % Math.min(_suggestList.length, 12);
+    renderSuggest();
+    document.getElementById('cmdInput').value = _suggestList[_suggestIdx][0] + ' ';
+  } else if (e.key === 'Enter') {
+    if (visible && _suggestIdx >= 0) {
+      e.preventDefault();
+      pickSuggest(_suggestIdx);
+    } else {
+      hideSuggest();
+      sendCmd();
+    }
+  } else if (e.key === 'Escape') {
+    hideSuggest();
+  }
+}
+
+function pickSuggest(idx) {
+  document.getElementById('cmdInput').value = _suggestList[idx][0] + ' ';
+  hideSuggest();
+  document.getElementById('cmdInput').focus();
+}
+
+function hideSuggest() {
+  document.getElementById('cmdSuggest').style.display = 'none';
+  _suggestIdx = -1;
+}
+
+// ── 핑·TPS 표시 ──────────────────────────────────────────────────────────
+function updatePing(ts) {
+  if (!ts) return;
+  const rtt = Date.now() - ts;
+  const chip = document.getElementById('pingChip');
+  chip.textContent = `핑 ${rtt}ms`;
+  chip.style.color  = rtt < 80  ? 'var(--mc-green)'
+                    : rtt < 200 ? 'var(--mc-gold)'
+                    :             'var(--mc-red)';
+}
+
+function updateTps(tps) {
+  const chip = document.getElementById('tpsChip');
+  if (!tps) { chip.style.display = 'none'; return; }
+  const v = parseFloat(tps.m1);
+  chip.textContent = `TPS ${tps.m1}`;
+  chip.style.display  = '';
+  chip.style.color     = v >= 19 ? 'var(--mc-green)'
+                       : v >= 15 ? 'var(--mc-gold)'
+                       :           'var(--mc-red)';
+  chip.style.borderColor = chip.style.color;
+}
 
 function sendCmd() {
   const cmd = document.getElementById('cmdInput').value.trim();
@@ -957,6 +1201,99 @@ async function doBackup() {
   btn.textContent = '백업';
 }
 
+// ── 모드 파일 관리 (Fabric) ───────────────────────────────────────────────
+async function loadMods() {
+  const list = await fetch('/api/mods').then(r => r.json()).catch(() => []);
+  const el = document.getElementById('modList');
+  el.innerHTML = list.map(m => `
+    <div class="plugin-item">
+      <span class="plugin-name" title="${esc(m.name)}">${esc(m.name)}</span>
+      <span class="plugin-size">${fmtSize(m.size)}</span>
+      <button class="plugin-del" onclick="deleteMod('${esc(m.name)}')">✕</button>
+    </div>`).join('');
+}
+
+async function deleteMod(name) {
+  if (!confirm(`${name} 을(를) 삭제하시겠습니까?`)) return;
+  await fetch(`/api/mods/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  appendLog(`[DevKit] 모드 삭제: ${name}`, 'devkit');
+  loadMods();
+}
+
+function onModDrop(e) {
+  e.preventDefault();
+  document.getElementById('modDropZone').classList.remove('drag-over');
+  uploadModFiles([...e.dataTransfer.files]);
+}
+
+function onModSelect(input) {
+  uploadModFiles([...input.files]);
+  input.value = '';
+}
+
+async function uploadModFiles(files) {
+  const jars = files.filter(f => f.name.endsWith('.jar'));
+  if (!jars.length) { appendLog('[DevKit] .jar 파일만 업로드 가능합니다', 'warn'); return; }
+
+  const zone = document.getElementById('modDropZone');
+  zone.style.opacity = '.5'; zone.style.pointerEvents = 'none';
+
+  for (const file of jars) {
+    appendLog(`[DevKit] 모드 업로드 중: ${file.name} (${fmtSize(file.size)})`, 'devkit');
+    const data = await new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
+    });
+    const resp = await fetch('/api/mods/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: file.name, data }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: '업로드 실패' }));
+      appendLog(`[DevKit] 모드 업로드 실패: ${err.error}`, 'error');
+    } else {
+      appendLog(`[DevKit] 모드 업로드 완료: ${file.name} ✓`, 'devkit');
+    }
+  }
+
+  zone.style.opacity = ''; zone.style.pointerEvents = '';
+  loadMods();
+}
+
+// ── 월드 관리 ──────────────────────────────────────────────────────────────
+async function deleteWorld() {
+  if (!confirm('월드(world, world_nether, world_the_end)를 삭제합니다.\n서버가 중지된 상태여야 합니다. 계속할까요?')) return;
+  const r = await fetch('/api/world', { method: 'DELETE' });
+  if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 월드 삭제 실패: ${e.error}`, 'error'); return; }
+  appendLog('[DevKit] 월드 삭제 완료 ✓', 'devkit');
+}
+
+async function newWorld() {
+  if (!confirm('기존 월드를 삭제하고 새 월드를 생성합니다. 계속할까요?')) return;
+  const r = await fetch('/api/world', { method: 'DELETE' });
+  if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 실패: ${e.error}`, 'error'); return; }
+  appendLog('[DevKit] 월드 삭제 완료, 서버 시작 시 새 월드가 생성됩니다.', 'devkit');
+}
+
+async function uploadWorld(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  if (!confirm(`${file.name} 을(를) 업로드하면 기존 월드가 교체됩니다. 계속할까요?`)) return;
+  appendLog(`[DevKit] 월드 업로드 중: ${file.name}`, 'devkit');
+  const data = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const resp = await fetch('/api/world/upload', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: file.name, data }),
+  });
+  if (!resp.ok) { const e = await resp.json(); appendLog(`[DevKit] 업로드 실패: ${e.error}`, 'error'); return; }
+  appendLog('[DevKit] 월드 업로드 완료 ✓', 'devkit');
+}
+
 async function startTunnel() { await fetch('/api/tunnel/start', { method:'POST' }); }
 async function stopTunnel()  { await fetch('/api/tunnel/stop',  { method:'POST' }); setTunnel(null); }
 
@@ -968,7 +1305,13 @@ function setTunnel(url) {
   inv.className    = url ? '' : 'invite-placeholder';
 }
 
-function copyUrl()    { if (tunnelUrl) navigator.clipboard.writeText(tunnelUrl); }
+function copyUrl() {
+  if (!tunnelUrl) return;
+  navigator.clipboard.writeText(tunnelUrl);
+  const t = document.getElementById('copyToast');
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 1500);
+}
 function openBrowser() {
   if (!tunnelUrl) return;
   isElectron ? window.devkit.openExternal(tunnelUrl) : window.open(tunnelUrl);
@@ -980,6 +1323,16 @@ async function pickDir(id) {
   if (dir) document.getElementById(id).value = dir;
 }
 
+function onServerTypeChange() {
+  const isFabric = document.getElementById('cfgServerType').value === 'fabric';
+  document.getElementById('cfgVersionLabel').textContent = isFabric ? 'MC 버전' : 'Paper 버전';
+  document.querySelectorAll('.plugin-only').forEach(el => { el.style.display = isFabric ? 'none' : ''; });
+  document.querySelectorAll('.fabric-only').forEach(el => { el.style.display = isFabric ? '' : 'none'; });
+  const cur = document.getElementById('cfgVersion').value;
+  loadVersionList(cur === '로딩 중...' ? null : cur);
+  if (isFabric) loadMods();
+}
+
 async function saveConfig() {
   await fetch('/api/config', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -989,6 +1342,7 @@ async function saveConfig() {
       serverDir:    document.getElementById('cfgServer').value,
       paperVersion: document.getElementById('cfgVersion').value,
       memory:       document.getElementById('cfgMemory').value,
+      serverType:   document.getElementById('cfgServerType').value,
     }),
   });
   appendLog('[DevKit] 설정 저장됨', 'devkit');
@@ -1001,20 +1355,46 @@ async function loadPermissions() {
   if (myRole === 'OWNER') renderPermMatrix(perms);
 }
 
+async function loadVersionList(selectedVersion) {
+  const sel        = document.getElementById('cfgVersion');
+  const isFabric   = document.getElementById('cfgServerType').value === 'fabric';
+  const endpoint   = isFabric ? '/api/fabric-versions' : '/api/paper-versions';
+  sel.innerHTML    = '<option>로딩 중...</option>';
+  try {
+    const versions = await fetch(endpoint).then(r => r.json());
+    if (!versions.length) throw new Error('empty');
+
+    const groups = {};
+    versions.forEach(v => {
+      const major = v.split('.').slice(0, 2).join('.');
+      (groups[major] = groups[major] || []).push(v);
+    });
+
+    sel.innerHTML = Object.keys(groups).reverse().map(g =>
+      `<optgroup label="${g}.x">${groups[g].map(v =>
+        `<option${v === selectedVersion ? ' selected' : ''}>${v}</option>`
+      ).join('')}</optgroup>`
+    ).join('');
+  } catch {
+    sel.innerHTML = `<option selected>${selectedVersion || '1.21.4'}</option>`;
+  }
+}
+
 async function loadConfig() {
   const cfg = await fetch('/api/config').then(r => r.json());
   document.getElementById('cfgPlugin').value   = cfg.pluginName || '';
   document.getElementById('cfgProject').value  = cfg.projectDir || '';
   document.getElementById('cfgServer').value   = cfg.serverDir  || '';
   document.getElementById('cfgBuildCmd').value = cfg.buildCmd   || '';
-  // Paper 버전 / 메모리 드롭다운 복원
-  if (cfg.paperVersion) {
-    const vEl = document.getElementById('cfgVersion');
-    [...vEl.options].forEach(o => { o.selected = (o.value === cfg.paperVersion); });
-  }
+  await loadVersionList(cfg.paperVersion || '1.21.4');
   if (cfg.memory) {
     const mEl = document.getElementById('cfgMemory');
     [...mEl.options].forEach(o => { o.selected = (o.value === cfg.memory); });
+  }
+  if (cfg.serverType) {
+    const stEl = document.getElementById('cfgServerType');
+    [...stEl.options].forEach(o => { o.selected = (o.value === cfg.serverType); });
+    onServerTypeChange();
   }
 }
 
@@ -1114,51 +1494,66 @@ function applyRole() {
   });
 }
 
-// ── playit.gg 통합 ───────────────────────────────────────────────────────
-let _playitRunning = false;
+// ── playit secret key 저장 ───────────────────────────────────────────────
+async function savePlayitSecret() {
+  const secret = document.getElementById('playitSecretInput').value.trim();
+  if (!secret) return;
+  const r = await fetch('/api/playit/secret', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret }),
+  });
+  if (r.ok) {
+    document.getElementById('playitStatus').textContent = '✓ 저장됨 — 터널 시작하면 자동 연결';
+    document.getElementById('playitStatus').style.color = 'var(--mc-green)';
+    document.getElementById('playitSecretInput').value = '';
+    appendLog('[DevKit] playit secret key 저장됨', 'devkit');
+  }
+}
 
-async function togglePlayit() {
-  if (_playitRunning) {
-    await fetch('/api/playit/stop', { method: 'POST' });
-    _playitRunning = false;
-    document.getElementById('playitBtn').textContent = '▶ playit 시작';
-    document.getElementById('playitBtn').classList.remove('t-red');
-    document.getElementById('playitBtn').classList.add('t-green');
-    document.getElementById('playitClaim').style.display = 'none';
-    appendLog('[DevKit] playit 중지됨', 'devkit');
+// ── playit claim 안내 ─────────────────────────────────────────────────────
+function showPlayitClaim(url) {
+  if (!url) return;
+  // URL에서 claim code 추출 (e.g. claimCode=abc-def-123 또는 claim=abc-def-123)
+  const m = url.match(/[?&](?:claimCode|claim)=([^&\s]+)/i);
+  const code = m ? m[1] : url;
+
+  appendLog(`[playit] ──────────────────────────────────────`, 'devkit');
+  appendLog(`[playit] 계정 연결 필요! claim code:`, 'devkit');
+  appendLog(`[playit]   ${code}`, 'devkit');
+  appendLog(`[playit] playit.gg 웹사이트 "Enter Claim Code" 칸에 위 코드 입력`, 'devkit');
+  appendLog(`[playit] ──────────────────────────────────────`, 'devkit');
+
+  // 팝업 알림
+  const chip = document.getElementById('tunnelChip');
+  chip.textContent  = '⚠ claim 필요';
+  chip.style.color  = 'var(--mc-gold)';
+  chip.title        = `playit.gg에 claim code 입력: ${code}`;
+}
+
+// ── ngrok(playit) 통합 ───────────────────────────────────────────────────
+let _ngrokRunning = false;
+
+async function toggleNgrok() {
+  if (_ngrokRunning) {
+    await fetch('/api/ngrok/stop', { method: 'POST' });
+    _ngrokRunning = false;
+    document.getElementById('ngrokBtn').textContent = '▶ 터널 시작';
+    document.getElementById('ngrokBtn').classList.remove('t-red');
+    document.getElementById('ngrokBtn').classList.add('t-green');
+    appendLog('[DevKit] 터널 중지됨', 'devkit');
   } else {
-    appendLog('[DevKit] playit 시작 중...', 'devkit');
-    const r = await fetch('/api/playit/start', { method: 'POST' });
+    appendLog('[DevKit] 터널 시작 중...', 'devkit');
+    const r = await fetch('/api/ngrok/start', { method: 'POST' });
     if (!r.ok) {
       const e = await r.json();
-      appendLog(`[DevKit] playit 시작 실패: ${e.error}`, 'error');
+      appendLog(`[DevKit] 터널 시작 실패: ${e.error}`, 'error');
       return;
     }
-    _playitRunning = true;
-    document.getElementById('playitBtn').textContent = '■ playit 중지';
-    document.getElementById('playitBtn').classList.remove('t-green');
-    document.getElementById('playitBtn').classList.add('t-red');
+    _ngrokRunning = true;
+    document.getElementById('ngrokBtn').textContent = '■ 터널 중지';
+    document.getElementById('ngrokBtn').classList.remove('t-green');
+    document.getElementById('ngrokBtn').classList.add('t-red');
   }
-}
-
-function setPlayitClaim(url) {
-  const el = document.getElementById('playitClaim');
-  const urlEl = document.getElementById('playitClaimUrl');
-  if (url) {
-    el.style.display = '';
-    urlEl.textContent = url;
-    urlEl.dataset.url = url;
-    appendLog(`[DevKit] playit 계정 연결 필요 — 브라우저에서 URL을 열어주세요`, 'warn');
-  } else {
-    el.style.display = 'none';
-  }
-}
-
-function openPlayitClaim() {
-  const url = document.getElementById('playitClaimUrl').dataset.url;
-  if (!url) return;
-  if (isElectron) window.devkit.openExternal(url);
-  else window.open(url, '_blank');
 }
 
 // ── MC 서버 주소 ──────────────────────────────────────────────────────────
@@ -1267,27 +1662,104 @@ async function uploadJarFiles(files) {
 }
 
 async function init() {
-  const [s, ps] = await Promise.all([
+  const [s, ns] = await Promise.all([
     fetch('/api/status').then(r => r.json()),
-    fetch('/api/playit/status').then(r => r.json()).catch(() => ({})),
+    fetch('/api/ngrok/status').then(r => r.json()).catch(() => ({})),
   ]);
   updateBadge(s.server);
   if (s.tunnel) setTunnel(s.tunnel);
   if (s.mcAddress) setMcAddr(s.mcAddress);
   if (s.players?.length) renderPlayers(s.players);
 
-  // playit이 이미 실행 중이면 버튼 상태 복원
-  if (ps.running) {
-    _playitRunning = true;
-    document.getElementById('playitBtn').textContent = '■ playit 중지';
-    document.getElementById('playitBtn').classList.replace('t-green', 't-red');
-    if (ps.claimUrl) setPlayitClaim(ps.claimUrl);
+  // ngrok이 이미 실행 중이면 버튼 상태 복원
+  if (ns.running) {
+    _ngrokRunning = true;
+    document.getElementById('ngrokBtn').textContent = '■ 터널 중지';
+    document.getElementById('ngrokBtn').classList.replace('t-green', 't-red');
   }
 
   await loadConfig();
   await loadPlugins();
+  if (document.getElementById('cfgServerType').value === 'fabric') loadMods();
+
   appendLog('[DevKit] MC DevKit 준비 완료', 'devkit');
 }
+
+// ── 배경 설정 ─────────────────────────────────────────────────────────────
+function applyBg(url) {
+  const overlay = document.getElementById('bgOverlay');
+  const opacity = document.getElementById('bgOpacity')?.value ?? 70;
+  const blur    = document.getElementById('bgBlur')?.value ?? 0;
+  if (url) {
+    overlay.style.backgroundImage = `url('${url}')`;
+    overlay.style.backdropFilter  = blur > 0 ? `blur(${blur}px)` : '';
+    overlay.style.backgroundColor = `rgba(20,15,10,${opacity/100})`;
+    overlay.style.backgroundBlendMode = 'multiply';
+  } else {
+    overlay.style.backgroundImage = '';
+    overlay.style.backgroundColor = '';
+    overlay.style.backdropFilter  = '';
+  }
+}
+
+function applyBgOverlay() {
+  const url = localStorage.getItem('devkit_bg_url');
+  if (url) applyBg(url);
+  const opacity = document.getElementById('bgOpacity').value;
+  const blur    = document.getElementById('bgBlur').value;
+  localStorage.setItem('devkit_bg_opacity', opacity);
+  localStorage.setItem('devkit_bg_blur', blur);
+}
+
+function openBgModal() {
+  const opacity = localStorage.getItem('devkit_bg_opacity') ?? '70';
+  const blur    = localStorage.getItem('devkit_bg_blur') ?? '0';
+  document.getElementById('bgOpacity').value = opacity;
+  document.getElementById('bgBlur').value    = blur;
+  document.getElementById('bgOpacityVal').textContent = opacity + '%';
+  const url = localStorage.getItem('devkit_bg_url') ?? '';
+  document.getElementById('bgUrlInput').value = url;
+  document.getElementById('bgModal').style.display = 'flex';
+}
+
+function closeBgModal() { document.getElementById('bgModal').style.display = 'none'; }
+
+function onBgImageSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    localStorage.setItem('devkit_bg_url', e.target.result);
+    document.getElementById('bgUrlInput').value = '';
+    applyBg(e.target.result);
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function applyBgUrl() {
+  const url = document.getElementById('bgUrlInput').value.trim();
+  if (!url) return;
+  localStorage.setItem('devkit_bg_url', url);
+  applyBg(url);
+}
+
+function resetBg() {
+  localStorage.removeItem('devkit_bg_url');
+  localStorage.removeItem('devkit_bg_opacity');
+  localStorage.removeItem('devkit_bg_blur');
+  applyBg(null);
+  document.getElementById('bgOpacity').value = 70;
+  document.getElementById('bgBlur').value = 0;
+  document.getElementById('bgOpacityVal').textContent = '70%';
+  document.getElementById('bgUrlInput').value = '';
+}
+
+// 저장된 배경 복원
+(function() {
+  const url = localStorage.getItem('devkit_bg_url');
+  if (url) applyBg(url);
+})();
 
 init();
 connect();

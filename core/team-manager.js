@@ -5,8 +5,8 @@ const { v4: uuidv4 } = require('uuid');
 // 기본 권한 (런타임에서 변경 가능)
 const DEFAULT_ROLES = {
   OWNER:  ['start','stop','restart','reload','build','command','kick'],
-  ADMIN:  ['restart','reload','build','command'],
-  MEMBER: ['reload','build'],
+  ADMIN:  ['start','stop','restart','reload','build','command'],
+  MEMBER: ['start','stop','restart','reload','build','command'],
   VIEWER: [],
 };
 
@@ -17,9 +17,25 @@ class TeamManager {
     this.clients    = new Map();   // token → { ws, name, role }
     this.ownerToken = uuidv4();
     this.roles      = JSON.parse(JSON.stringify(DEFAULT_ROLES));  // 복사본
+    this._logBuf    = [];
+    this._logFlush  = null;
 
     wss.on('connection', (ws, req) => this._onConnect(ws, req));
     console.log(`[DevKit] Owner 토큰: ${this.ownerToken}`);
+
+    // 25초마다 ping → pong 없으면 죽은 연결 강제 종료
+    this._heartbeat = setInterval(() => {
+      for (const [token, client] of this.clients) {
+        if (client.alive === false) {
+          client.ws.terminate();
+          this.clients.delete(token);
+          this.broadcast({ type: 'TEAM_UPDATE', clients: this._clientList() });
+        } else {
+          client.alive = false;
+          try { client.ws.ping(); } catch {}
+        }
+      }
+    }, 25000);
   }
 
   // ── 연결 ────────────────────────────────────────────────────────────────────
@@ -40,10 +56,16 @@ class TeamManager {
           case 'STDIN':       this._handleStdin(token, msg);           break;
           case 'ROLE_CHANGE': this._handleRoleChange(token, msg);      break;
           case 'KICK':        this._handleKick(token, msg);            break;
+          case 'PING':        ws.send(JSON.stringify({ type: 'PONG', ts: msg.ts })); break;
         }
       } catch (err) {
         ws.send(JSON.stringify({ type:'ERROR', message: err.message }));
       }
+    });
+
+    ws.on('pong', () => {
+      const c = this.clients.get(token);
+      if (c) c.alive = true;
     });
 
     ws.on('close', () => {
@@ -68,7 +90,7 @@ class TeamManager {
       token = uuidv4();
     }
 
-    this.clients.set(token, { ws, name: name || `User_${token.slice(0,4)}`, role });
+    this.clients.set(token, { ws, name: name || `User_${token.slice(0,4)}`, role, alive: true });
     ws.send(JSON.stringify({ type:'AUTH_OK', token, role, name,
       permissions: this._publicPermissions() }));
     this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
@@ -200,7 +222,22 @@ class TeamManager {
       if (ws.readyState === 1) ws.send(payload);
   }
 
-  broadcastLog(line)              { this.broadcast({ type:'LOG', line }); }
+  // 로그는 50ms 단위로 배치 전송 — 개별 메시지 폭탄 방지
+  broadcastLog(line) {
+    this._logBuf.push(line);
+    if (!this._logFlush) {
+      this._logFlush = setTimeout(() => {
+        if (this._logBuf.length === 1) {
+          this.broadcast({ type: 'LOG', line: this._logBuf[0] });
+        } else {
+          this.broadcast({ type: 'LOGS', lines: this._logBuf });
+        }
+        this._logBuf   = [];
+        this._logFlush = null;
+      }, 50);
+    }
+  }
+
   broadcastStatus(status, url)    { this.broadcast({ type:'STATUS', status, tunnelUrl: url }); }
   getOwnerToken()                 { return this.ownerToken; }
 }

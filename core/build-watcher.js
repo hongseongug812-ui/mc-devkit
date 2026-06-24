@@ -49,8 +49,15 @@ class BuildWatcher {
   // ── Gradle 빌드 실행 ────────────────────────────────────────────────────────
   async _build() {
     if (this.building) return;
-    this.building = true;
 
+    // buildCmd 없으면 gradlew 존재 여부 먼저 확인
+    if (!this.config.buildCmd) {
+      const gradlew = path.join(this.config.projectDir,
+        process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+      if (!fs.pathExistsSync(gradlew)) return; // Gradle 없음 → 조용히 건너뜀
+    }
+
+    this.building = true;
     this.onLog('[DevKit] 빌드 시작...');
     const startTime = Date.now();
 
@@ -100,8 +107,12 @@ class BuildWatcher {
 
     this.onLog(`[DevKit] 파일 감시 시작 → ${watchPath}`);
 
+    const serverDirAbs = path.resolve(this.config.serverDir);
     this.watcher = chokidar.watch(watchPath, {
-      ignored: /(node_modules|\.git|build|\.gradle|out)(\/|\\|$)/,
+      ignored: [
+        /(node_modules|\.git|build|\.gradle|out)(\/|\\|$)/,
+        (p) => p.startsWith(serverDirAbs + path.sep) || p === serverDirAbs,
+      ],
       persistent: true,
       ignoreInitial: true,
       depth: 10,
@@ -110,7 +121,7 @@ class BuildWatcher {
     this.watcher.on('change', (filePath) => {
       this.onLog(`[DevKit] 변경 감지: ${path.basename(filePath)}`);
       clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(() => this._build(), 300);
+      this._debounceTimer = setTimeout(() => this._build(), 1500);
     });
 
     this.watcher.on('error', (err) => {
