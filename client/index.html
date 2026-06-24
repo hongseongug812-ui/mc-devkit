@@ -849,6 +849,8 @@ const PERM_ACTIONS = [
   { key:'reload',  label:'플러그인 리로드' },
   { key:'build',   label:'빌드' },
   { key:'command', label:'명령어 전송' },
+  { key:'world',   label:'월드 삭제/생성' },
+  { key:'upload',  label:'모드/플러그인 업로드' },
 ];
 
 let ws = null, myRole = null, tunnelUrl = null, allLogs = [], myToken = null, stdinMode = false;
@@ -930,6 +932,13 @@ function handle(msg) {
 
 // 서버에서 받은 권한 → 로컬 ROLE_PERMS 동기화 (버튼 비활성화 반영)
 function syncPermissions(perms) {
+  // raw 권한 맵 저장 (hasPerm에서 사용)
+  window._myPerms = {
+    OWNER:  ['start','stop','restart','reload','build','command','kick','world','upload'],
+    ADMIN:  perms.ADMIN  || [],
+    MEMBER: perms.MEMBER || [],
+    VIEWER: [],
+  };
   ['ADMIN','MEMBER','VIEWER'].forEach(role => {
     const actions = perms[role] || [];
     ROLE_PERMS[role] = actions.map(a => ACTION_BTN[a]).filter(Boolean);
@@ -1185,6 +1194,20 @@ function renderPlayers(players) {
     </div>`).join('');
 }
 
+// 인증 헤더 포함 fetch 헬퍼
+function authFetch(url, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (myToken) headers['X-DevKit-Token'] = myToken;
+  return fetch(url, { ...opts, headers });
+}
+
+// 권한 체크 헬퍼
+function hasPerm(perm) {
+  const role = myRole || 'VIEWER';
+  const perms = (window._myPerms || {})[role] || [];
+  return perms.includes(perm);
+}
+
 // ── 세계 백업 ──────────────────────────────────────────────────────────────
 async function doBackup() {
   const btn = document.getElementById('btnBackup');
@@ -1214,8 +1237,9 @@ async function loadMods() {
 }
 
 async function deleteMod(name) {
+  if (!hasPerm('upload')) { appendLog('[DevKit] 권한 없음: 모드 삭제', 'error'); return; }
   if (!confirm(`${name} 을(를) 삭제하시겠습니까?`)) return;
-  await fetch(`/api/mods/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  await authFetch(`/api/mods/${encodeURIComponent(name)}`, { method: 'DELETE' });
   appendLog(`[DevKit] 모드 삭제: ${name}`, 'devkit');
   loadMods();
 }
@@ -1232,6 +1256,7 @@ function onModSelect(input) {
 }
 
 async function uploadModFiles(files) {
+  if (!hasPerm('upload')) { appendLog('[DevKit] 권한 없음: 모드 업로드', 'error'); return; }
   const jars = files.filter(f => f.name.endsWith('.jar'));
   if (!jars.length) { appendLog('[DevKit] .jar 파일만 업로드 가능합니다', 'warn'); return; }
 
@@ -1243,8 +1268,8 @@ async function uploadModFiles(files) {
     const data = await new Promise((res, rej) => {
       const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
     });
-    const resp = await fetch('/api/mods/upload', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const resp = await authFetch('/api/mods/upload', {
+      method: 'POST',
       body: JSON.stringify({ name: file.name, data }),
     });
     if (!resp.ok) {
@@ -1261,20 +1286,23 @@ async function uploadModFiles(files) {
 
 // ── 월드 관리 ──────────────────────────────────────────────────────────────
 async function deleteWorld() {
+  if (!hasPerm('world')) { appendLog('[DevKit] 권한 없음: 월드 삭제', 'error'); return; }
   if (!confirm('월드(world, world_nether, world_the_end)를 삭제합니다.\n서버가 중지된 상태여야 합니다. 계속할까요?')) return;
-  const r = await fetch('/api/world', { method: 'DELETE' });
+  const r = await authFetch('/api/world', { method: 'DELETE' });
   if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 월드 삭제 실패: ${e.error}`, 'error'); return; }
   appendLog('[DevKit] 월드 삭제 완료 ✓', 'devkit');
 }
 
 async function newWorld() {
+  if (!hasPerm('world')) { appendLog('[DevKit] 권한 없음: 월드 생성', 'error'); return; }
   if (!confirm('기존 월드를 삭제하고 새 월드를 생성합니다. 계속할까요?')) return;
-  const r = await fetch('/api/world', { method: 'DELETE' });
+  const r = await authFetch('/api/world', { method: 'DELETE' });
   if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 실패: ${e.error}`, 'error'); return; }
   appendLog('[DevKit] 월드 삭제 완료, 서버 시작 시 새 월드가 생성됩니다.', 'devkit');
 }
 
 async function uploadWorld(input) {
+  if (!hasPerm('world')) { appendLog('[DevKit] 권한 없음: 맵 업로드', 'error'); return; }
   const file = input.files[0];
   if (!file) return;
   input.value = '';
@@ -1286,8 +1314,8 @@ async function uploadWorld(input) {
     r.onerror = rej;
     r.readAsDataURL(file);
   });
-  const resp = await fetch('/api/world/upload', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const resp = await authFetch('/api/world/upload', {
+    method: 'POST',
     body: JSON.stringify({ name: file.name, data }),
   });
   if (!resp.ok) { const e = await resp.json(); appendLog(`[DevKit] 업로드 실패: ${e.error}`, 'error'); return; }
@@ -1612,8 +1640,9 @@ async function loadPlugins() {
 }
 
 async function deletePlugin(name) {
+  if (!hasPerm('upload')) { appendLog('[DevKit] 권한 없음: 플러그인 삭제', 'error'); return; }
   if (!confirm(`${name} 을(를) 삭제하시겠습니까?`)) return;
-  await fetch(`/api/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  await authFetch(`/api/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' });
   appendLog(`[DevKit] 플러그인 삭제: ${name}`, 'devkit');
   loadPlugins();
 }
@@ -1630,6 +1659,7 @@ function onJarSelect(input) {
 }
 
 async function uploadJarFiles(files) {
+  if (!hasPerm('upload')) { appendLog('[DevKit] 권한 없음: 플러그인 업로드', 'error'); return; }
   const jars = files.filter(f => f.name.endsWith('.jar'));
   if (!jars.length) { appendLog('[DevKit] .jar 파일만 업로드 가능합니다', 'warn'); return; }
 
@@ -1645,8 +1675,8 @@ async function uploadJarFiles(files) {
       r.onerror = rej;
       r.readAsDataURL(file);
     });
-    const resp = await fetch('/api/plugins/upload', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const resp = await authFetch('/api/plugins/upload', {
+      method: 'POST',
       body: JSON.stringify({ name: file.name, data }),
     });
     if (!resp.ok) {

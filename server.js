@@ -129,6 +129,19 @@ const ngrokManager = new PlayitManager(
 
 let teamManager = null;
 
+// REST API 권한 체크 미들웨어
+function requirePerm(perm) {
+  return (req, res, next) => {
+    const token = req.headers['x-devkit-token'];
+    if (!token || !teamManager) return res.status(401).json({ error: '인증 필요' });
+    const client = teamManager.clients.get(token);
+    if (!client) return res.status(401).json({ error: '유효하지 않은 토큰' });
+    const perms = teamManager.roles[client.role] || [];
+    if (!perms.includes(perm)) return res.status(403).json({ error: `권한 없음: ${perm}` });
+    next();
+  };
+}
+
 // ── 서버 시작 (main.js에서 호출) ─────────────────────────────────────────
 function startServer(port) {
   return new Promise((resolve) => {
@@ -333,7 +346,7 @@ function startServer(port) {
       } catch { res.json([]); }
     });
 
-    app.post('/api/mods/upload', async (req, res) => {
+    app.post('/api/mods/upload', requirePerm('upload'), async (req, res) => {
       try {
         const { name, data } = req.body;
         if (!name?.endsWith('.jar')) return res.status(400).json({ error: 'jar 파일만 가능합니다.' });
@@ -346,7 +359,7 @@ function startServer(port) {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    app.delete('/api/mods/:name', async (req, res) => {
+    app.delete('/api/mods/:name', requirePerm('upload'), async (req, res) => {
       try {
         const safe = path.basename(req.params.name);
         await fs.remove(path.join(activeServerDir(), 'mods', safe));
@@ -356,7 +369,7 @@ function startServer(port) {
     });
 
     // ── 월드 관리 ─────────────────────────────────────────────────────────────
-    app.delete('/api/world', async (_, res) => {
+    app.delete('/api/world', requirePerm('world'), async (_, res) => {
       if (serverManager.getStatus() !== 'stopped')
         return res.status(400).json({ error: '서버를 먼저 중지해주세요.' });
       const serverDirAbs = path.resolve(activeServerDir());
@@ -366,7 +379,7 @@ function startServer(port) {
       res.json({ ok: true });
     });
 
-    app.post('/api/world/upload', async (req, res) => {
+    app.post('/api/world/upload', requirePerm('world'), async (req, res) => {
       if (serverManager.getStatus() !== 'stopped')
         return res.status(400).json({ error: '서버를 먼저 중지해주세요.' });
       try {
@@ -421,7 +434,7 @@ function startServer(port) {
       } catch { res.json([]); }
     });
 
-    app.post('/api/plugins/upload', async (req, res) => {
+    app.post('/api/plugins/upload', requirePerm('upload'), async (req, res) => {
       try {
         const { name, data } = req.body;
         if (!name?.endsWith('.jar')) return res.status(400).json({ error: 'jar 파일만 가능합니다.' });
@@ -452,7 +465,7 @@ function startServer(port) {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
-    app.delete('/api/plugins/:name', async (req, res) => {
+    app.delete('/api/plugins/:name', requirePerm('upload'), async (req, res) => {
       try {
         const safe = path.basename(req.params.name);
         await fs.remove(path.join(activeServerDir(), 'plugins', safe));

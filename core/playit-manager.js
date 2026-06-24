@@ -126,9 +126,20 @@ class PlayitManager {
       }
     };
 
+    let _lastStatus = '';
     const handle = (data) => {
       const lines = data.toString().split('\n').filter(l => l.trim());
-      lines.forEach(l => { this.onLog(`[playit] ${l}`); parse(l); });
+      lines.forEach(l => {
+        // 3초마다 반복되는 상태 로그 중복 억제
+        const isStatus = /playit \(v[\d.]+\):.*tunnel running|^TUNNELS$|=> 127\.0\.0\.1/.test(l);
+        if (isStatus) {
+          const key = l.replace(/\d{10,}/g, ''); // 타임스탬프 제거 후 비교
+          if (key === _lastStatus) return;
+          _lastStatus = key;
+        }
+        this.onLog(`[playit] ${l}`);
+        parse(l);
+      });
     };
 
     this.process.stdout.on('data', handle);
@@ -150,12 +161,20 @@ class PlayitManager {
   }
 
   stop() {
+    this._stopped = true;
+    if (this._restartTimer) { clearTimeout(this._restartTimer); this._restartTimer = null; }
     if (!this.process) return;
     this.process.kill();
     this.process  = null;
     this.address  = null;
     this.claimUrl = null;
     this.onLog('[DevKit] playit 중지됨');
+  }
+
+  restart() {
+    this._stopped = false;
+    this.stop();
+    setTimeout(() => this.start().catch(e => this.onLog(`[DevKit] playit 재시작 실패: ${e.message}`)), 500);
   }
 
   getAddress()  { return this.address; }

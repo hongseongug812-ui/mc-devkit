@@ -27,7 +27,7 @@ class ServerManager {
 
   // 서버 타입별 독립 폴더 (fabric/paper/vanilla 충돌 방지)
   get _dir() {
-    return path.join(this._dir, this.config.serverType || 'paper');
+    return path.join(this.config.serverDir, this.config.serverType || 'paper');
   }
 
   // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────

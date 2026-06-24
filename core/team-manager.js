@@ -4,8 +4,8 @@ const { v4: uuidv4 } = require('uuid');
 
 // 기본 권한 (런타임에서 변경 가능)
 const DEFAULT_ROLES = {
-  OWNER:  ['start','stop','restart','reload','build','command','kick'],
-  ADMIN:  ['start','stop','restart','reload','build','command'],
+  OWNER:  ['start','stop','restart','reload','build','command','kick','world','upload'],
+  ADMIN:  ['start','stop','restart','reload','build','command','world','upload'],
   MEMBER: ['start','stop','restart','reload','build','command'],
   VIEWER: [],
 };
