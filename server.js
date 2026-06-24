@@ -47,6 +47,11 @@ const CONFIG = {
   playitSecret: _saved.playitSecret || process.env.PLAYIT_SECRET || null,
 };
 
+// 서버 타입별 독립 폴더 계산 (server-manager와 동일 로직)
+function activeServerDir() {
+  return path.join(CONFIG.serverDir, CONFIG.serverType || 'paper');
+}
+
 // ── 상태 ──────────────────────────────────────────────────────────────────
 const state = { serverStatus: 'stopped', tunnelUrl: null, mcAddress: null, players: [], tps: null };
 
@@ -312,9 +317,9 @@ function startServer(port) {
       }
     });
 
-    // ── 모드 관리 (Fabric) ────────────────────────────────────────────────────
+    // ── 모드 관리 (Fabric 전용 폴더) ─────────────────────────────────────────
     app.get('/api/mods', async (_, res) => {
-      const dir = path.join(CONFIG.serverDir, 'mods');
+      const dir = path.join(activeServerDir(), 'mods');
       try {
         await fs.ensureDir(dir);
         const files = await fs.readdir(dir);
@@ -332,7 +337,7 @@ function startServer(port) {
       try {
         const { name, data } = req.body;
         if (!name?.endsWith('.jar')) return res.status(400).json({ error: 'jar 파일만 가능합니다.' });
-        const dir = path.join(CONFIG.serverDir, 'mods');
+        const dir = path.join(activeServerDir(), 'mods');
         await fs.ensureDir(dir);
         const buf = Buffer.from(data.replace(/^data:[^;]+;base64,/, ''), 'base64');
         await fs.writeFile(path.join(dir, path.basename(name)), buf);
@@ -344,7 +349,7 @@ function startServer(port) {
     app.delete('/api/mods/:name', async (req, res) => {
       try {
         const safe = path.basename(req.params.name);
-        await fs.remove(path.join(CONFIG.serverDir, 'mods', safe));
+        await fs.remove(path.join(activeServerDir(), 'mods', safe));
         teamManager?.broadcastLog(`[DevKit] 모드 삭제: ${safe}`);
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }
@@ -354,7 +359,7 @@ function startServer(port) {
     app.delete('/api/world', async (_, res) => {
       if (serverManager.getStatus() !== 'stopped')
         return res.status(400).json({ error: '서버를 먼저 중지해주세요.' });
-      const serverDirAbs = path.resolve(CONFIG.serverDir);
+      const serverDirAbs = path.resolve(activeServerDir());
       const worlds = ['world', 'world_nether', 'world_the_end'];
       for (const w of worlds) await fs.remove(path.join(serverDirAbs, w)).catch(() => {});
       teamManager?.broadcastLog('[DevKit] 월드 삭제 완료 ✓');
@@ -367,16 +372,14 @@ function startServer(port) {
       try {
         const { name, data } = req.body;
         if (!name?.match(/\.(zip)$/i)) return res.status(400).json({ error: '.zip 파일만 가능합니다.' });
-        const serverDirAbs = path.resolve(CONFIG.serverDir);
+        const serverDirAbs = path.resolve(activeServerDir());
         const tmpZip = path.join(os.tmpdir(), `world-upload-${Date.now()}.zip`);
         const buf = Buffer.from(data.replace(/^data:[^;]+;base64,/, ''), 'base64');
         await fs.writeFile(tmpZip, buf);
 
-        // 기존 월드 삭제
         for (const w of ['world', 'world_nether', 'world_the_end'])
           await fs.remove(path.join(serverDirAbs, w)).catch(() => {});
 
-        // 압축 해제
         await execAsync(
           `powershell -NoProfile -Command "Expand-Archive -Path '${tmpZip}' -DestinationPath '${serverDirAbs}' -Force"`,
           { timeout: 120000 }
@@ -402,9 +405,9 @@ function startServer(port) {
       } catch { res.json([]); }
     });
 
-    // ── 플러그인 관리 ──────────────────────────────────────────────────────
+    // ── 플러그인 관리 (Paper 전용 폴더) ──────────────────────────────────────
     app.get('/api/plugins', async (_, res) => {
-      const dir = path.join(CONFIG.serverDir, 'plugins');
+      const dir = path.join(activeServerDir(), 'plugins');
       try {
         await fs.ensureDir(dir);
         const files = await fs.readdir(dir);
@@ -423,7 +426,7 @@ function startServer(port) {
         const { name, data } = req.body;
         if (!name?.endsWith('.jar')) return res.status(400).json({ error: 'jar 파일만 가능합니다.' });
         const safeName = path.basename(name);
-        const dir = path.join(CONFIG.serverDir, 'plugins');
+        const dir = path.join(activeServerDir(), 'plugins');
         await fs.ensureDir(dir);
         const buf = Buffer.from(data.replace(/^data:[^;]+;base64,/, ''), 'base64');
         await fs.writeFile(path.join(dir, safeName), buf);
@@ -452,7 +455,7 @@ function startServer(port) {
     app.delete('/api/plugins/:name', async (req, res) => {
       try {
         const safe = path.basename(req.params.name);
-        await fs.remove(path.join(CONFIG.serverDir, 'plugins', safe));
+        await fs.remove(path.join(activeServerDir(), 'plugins', safe));
         teamManager?.broadcastLog(`[DevKit] 플러그인 삭제: ${safe}`);
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }

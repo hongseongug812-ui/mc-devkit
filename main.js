@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const { startServer, getState }  = require('./server');
 
@@ -99,12 +100,36 @@ function forceQuit() {
 
 // ── 앱 라이프사이클 ─────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  // 백엔드 서버 시작 (Express + WebSocket)
   server = await startServer(PORT);
 
   createWindow();
   createTray();
   registerIpc();
+
+  // 자동 업데이트 (배포 빌드에서만)
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify();
+
+    autoUpdater.on('update-available', () => {
+      dialog.showMessageBox(win, {
+        type: 'info',
+        title: 'MC DevKit 업데이트',
+        message: '새 버전이 있습니다. 백그라운드에서 다운로드합니다.',
+        buttons: ['확인'],
+      });
+    });
+
+    autoUpdater.on('update-downloaded', () => {
+      dialog.showMessageBox(win, {
+        type: 'question',
+        title: '업데이트 준비 완료',
+        message: '새 버전 다운로드 완료. 지금 재시작하여 업데이트하시겠습니까?',
+        buttons: ['재시작', '나중에'],
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+    });
+  }
 });
 
 app.on('window-all-closed', (e) => {

@@ -10,6 +10,7 @@ const PAPER_API    = 'https://api.papermc.io/v2/projects/paper';
 const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
+const MOJANG_META  = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
 const JRE_DIR      = path.join(os.homedir(), '.mc-devkit', 'jre');
 
 class ServerManager {
@@ -21,7 +22,12 @@ class ServerManager {
     this.status     = 'stopped';
     this._javaPath  = null;
     this._stopping  = false;
-    this._crashTimes = [];   // 크래시 루프 감지용
+    this._crashTimes = [];
+  }
+
+  // 서버 타입별 독립 폴더 (fabric/paper/vanilla 충돌 방지)
+  get _dir() {
+    return path.join(this._dir, this.config.serverType || 'paper');
   }
 
   // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────
@@ -115,7 +121,7 @@ class ServerManager {
 
   // ── PlugManX 자동 설치 ──────────────────────────────────────────────────────
   async _ensurePlugManX() {
-    const pluginsDir = path.join(this.config.serverDir, 'plugins');
+    const pluginsDir = path.join(this._dir, 'plugins');
     await fs.ensureDir(pluginsDir);
 
     const files = await fs.readdir(pluginsDir);
@@ -144,8 +150,8 @@ class ServerManager {
 
   // ── Paper jar 확보 (번들 → 다운로드) ──────────────────────────────────────
   async _ensurePaper() {
-    const jarPath  = path.join(this.config.serverDir, 'paper.jar');
-    const verFile  = path.join(this.config.serverDir, '.paper-version');
+    const jarPath  = path.join(this._dir, 'paper.jar');
+    const verFile  = path.join(this._dir, '.paper-version');
     const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
 
     // 버전이 바뀌었으면 기존 jar 삭제 후 재다운로드
@@ -162,7 +168,7 @@ class ServerManager {
         `paper-${this.config.version}.jar`);
       if (await fs.pathExists(bundled)) {
         this.onLog(`[DevKit] 번들 Paper ${this.config.version} 사용`);
-        await fs.ensureDir(this.config.serverDir);
+        await fs.ensureDir(this._dir);
         await fs.copy(bundled, jarPath);
         await fs.writeFile(verFile, this.config.version);
         return;
@@ -174,7 +180,7 @@ class ServerManager {
     const jarName = `paper-${this.config.version}-${build}.jar`;
     const url     = `${PAPER_API}/versions/${this.config.version}/builds/${build}/downloads/${jarName}`;
 
-    await fs.ensureDir(this.config.serverDir);
+    await fs.ensureDir(this._dir);
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
     await fs.writeFile(jarPath, resp.data);
     await fs.writeFile(verFile, this.config.version);
@@ -183,8 +189,8 @@ class ServerManager {
 
   // ── Fabric 서버 설치 ────────────────────────────────────────────────────────
   async _ensureFabric() {
-    const launchJar = path.join(this.config.serverDir, 'fabric-server-launch.jar');
-    const verFile   = path.join(this.config.serverDir, '.fabric-version');
+    const launchJar = path.join(this._dir, 'fabric-server-launch.jar');
+    const verFile   = path.join(this._dir, '.fabric-version');
     const savedVer  = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
 
     // 버전이 바뀌었으면 기존 jar 삭제 후 재설치
@@ -195,14 +201,14 @@ class ServerManager {
 
     if (await fs.pathExists(launchJar)) return;
 
-    await fs.ensureDir(this.config.serverDir);
+    await fs.ensureDir(this._dir);
 
     // 최신 인스톨러 버전 조회 후 다운로드
     this.onLog('[DevKit] Fabric 인스톨러 다운로드 중...');
     const { data: versions } = await axios.get(FABRIC_META);
     const ver = versions[0].version;
     const installerUrl = `${FABRIC_MAVEN}/${ver}/fabric-installer-${ver}.jar`;
-    const instPath = path.join(this.config.serverDir, 'fabric-installer.jar');
+    const instPath = path.join(this._dir, 'fabric-installer.jar');
     const resp = await axios.get(installerUrl, { responseType: 'arraybuffer', maxRedirects: 10 });
     await fs.writeFile(instPath, resp.data);
 
@@ -213,7 +219,7 @@ class ServerManager {
       const proc = spawn(javaPath, [
         '-jar', 'fabric-installer.jar',
         'server', '-mcversion', this.config.version, '-downloadMinecraft',
-      ], { cwd: this.config.serverDir, stdio: ['pipe', 'pipe', 'pipe'] });
+      ], { cwd: this._dir, stdio: ['pipe', 'pipe', 'pipe'] });
       proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`)));
       proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`)));
       proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Fabric 설치 실패 (exit ${code})`)));
@@ -223,9 +229,39 @@ class ServerManager {
     this.onLog('[DevKit] Fabric 설치 완료 ✓');
   }
 
+  // ── Vanilla 서버 jar 확보 ──────────────────────────────────────────────────
+  async _ensureVanilla() {
+    const jarPath = path.join(this._dir, 'server.jar');
+    const verFile = path.join(this._dir, '.vanilla-version');
+    const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
+
+    if (savedVer !== this.config.version && await fs.pathExists(jarPath)) {
+      this.onLog(`[DevKit] Vanilla 버전 변경 (${savedVer} → ${this.config.version}), 재다운로드 중...`);
+      await fs.remove(jarPath);
+    }
+
+    if (await fs.pathExists(jarPath)) return;
+
+    this.onLog(`[DevKit] Vanilla ${this.config.version} 다운로드 중...`);
+    await fs.ensureDir(this._dir);
+
+    const { data: manifest } = await axios.get(MOJANG_META);
+    const entry = manifest.versions.find(v => v.id === this.config.version);
+    if (!entry) throw new Error(`Vanilla ${this.config.version} 버전을 찾을 수 없습니다.`);
+
+    const { data: meta } = await axios.get(entry.url);
+    const serverUrl = meta.downloads?.server?.url;
+    if (!serverUrl) throw new Error(`Vanilla ${this.config.version} 서버 jar URL 없음`);
+
+    const resp = await axios.get(serverUrl, { responseType: 'arraybuffer', maxRedirects: 10 });
+    await fs.writeFile(jarPath, resp.data);
+    await fs.writeFile(verFile, this.config.version);
+    this.onLog('[DevKit] Vanilla 다운로드 완료 ✓');
+  }
+
   // ── server.properties 자동 설정 ────────────────────────────────────────────
   async _writeServerProps() {
-    const propsPath = path.join(this.config.serverDir, 'server.properties');
+    const propsPath = path.join(this._dir, 'server.properties');
     let props = await fs.pathExists(propsPath)
       ? await fs.readFile(propsPath, 'utf8')
       : '';
@@ -267,7 +303,7 @@ class ServerManager {
       { id: 'ferrite-core',name: 'FerriteCore' },
     ];
 
-    const modsDir = path.join(this.config.serverDir, 'mods');
+    const modsDir = path.join(this._dir, 'mods');
     await fs.ensureDir(modsDir);
 
     const mcVer = this.config.version;
@@ -317,7 +353,7 @@ class ServerManager {
   // ── Paper 성능 config 자동 생성 ──────────────────────────────────────────
   async _writePaperConfig() {
     // paper-global.yml (Paper 1.19+)
-    const globalDir  = path.join(this.config.serverDir, 'config');
+    const globalDir  = path.join(this._dir, 'config');
     const globalFile = path.join(globalDir, 'paper-global.yml');
     await fs.ensureDir(globalDir);
 
@@ -409,17 +445,23 @@ class ServerManager {
 
     try {
       const javaPath = await this._ensureJava();
-      await fs.writeFile(path.join(this.config.serverDir, 'eula.txt'), 'eula=true\n');
+      await fs.writeFile(path.join(this._dir, 'eula.txt'), 'eula=true\n');
       await this._writeServerProps();
 
       let jarArgs;
       if (this.config.serverType === 'fabric') {
         await this._ensureFabric();
+        await this._ensureFabricPerfMods();
         jarArgs = ['fabric-server-launch.jar', 'nogui'];
         this.onLog('[DevKit] Fabric 서버 시작 중...');
+      } else if (this.config.serverType === 'vanilla') {
+        await this._ensureVanilla();
+        jarArgs = ['server.jar', '--nogui'];
+        this.onLog('[DevKit] Vanilla 서버 시작 중...');
       } else {
         await this._ensurePaper();
         await this._ensurePlugManX();
+        await this._writePaperConfig();
         jarArgs = ['paper.jar', '--nogui'];
         this.onLog('[DevKit] Paper 서버 시작 중...');
       }
@@ -450,12 +492,6 @@ class ServerManager {
         '-Daikars.new.flags=true',
       ];
 
-      if (this.config.serverType === 'fabric') {
-        await this._ensureFabricPerfMods();
-      } else {
-        await this._writePaperConfig();
-      }
-
       this.process = spawn(
         javaPath,
         [
@@ -464,7 +500,7 @@ class ServerManager {
           ...aikarFlags,
           '-jar', ...jarArgs,
         ],
-        { cwd: this.config.serverDir, stdio: ['pipe', 'pipe', 'pipe'] }
+        { cwd: this._dir, stdio: ['pipe', 'pipe', 'pipe'] }
       );
     } catch (err) {
       this.status = 'stopped';
