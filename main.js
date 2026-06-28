@@ -7,15 +7,23 @@ const { startServer, getState }  = require('./server');
 
 const isDev = process.argv.includes('--dev');
 
+// 단일 인스턴스 보장 — 이미 실행 중이면 기존 창만 포커스하고 종료
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+  process.exit(0);
+}
+
 // 패키징된 앱에서 번들 리소스 경로 노출 (server-manager가 읽음)
 if (app.isPackaged) {
   process.env.DEVKIT_RESOURCES = process.resourcesPath;
 }
 const PORT  = 3847;
 
-let win    = null;
-let tray   = null;
-let server = null;
+let win       = null;
+let tray      = null;
+let server    = null;
+let isQuitting = false;  // 인스톨러/완전종료 시 close 막지 않음
 
 // ── 메인 윈도우 생성 ────────────────────────────────────────────────────────
 function createWindow() {
@@ -41,7 +49,7 @@ function createWindow() {
   if (isDev) win.webContents.openDevTools();
 
   win.on('close', (e) => {
-    // X 버튼 → 트레이로 최소화 (종료 아님)
+    if (isQuitting) return;  // 인스톨러/완전종료 시 그냥 닫힘
     e.preventDefault();
     win.hide();
   });
@@ -132,17 +140,20 @@ app.whenReady().then(async () => {
   }
 });
 
+app.on('second-instance', () => {
+  // 두 번째 실행 시도 → 기존 창 포커스
+  if (win) { win.show(); win.focus(); }
+});
+
 app.on('window-all-closed', (e) => {
-  // 모든 창 닫혀도 앱은 트레이에서 살아있음
-  e.preventDefault();
+  if (!isQuitting) e.preventDefault();  // 트레이 유지 (종료 아닐 때만)
 });
 
 app.on('activate', () => {
-  // macOS: Dock 클릭 시 창 복원
   if (win) win.show();
 });
 
 app.on('before-quit', () => {
-  // 진짜 종료 시 서버 정리
+  isQuitting = true;
   server?.close();
 });

@@ -1,6 +1,6 @@
 {
   "name": "mc-devkit",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Minecraft Plugin Dev Toolkit — 팀 협업 + 핫 리로드",
   "main": "main.js",
   "scripts": {
@@ -63,7 +63,8 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "MC DevKit",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "installer.nsh"
     },
     "mac": {
       "target": "dmg",
