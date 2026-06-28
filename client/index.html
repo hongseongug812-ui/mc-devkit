@@ -506,6 +506,71 @@
       letter-spacing: 1px;
     }
     .modal-hint { color: #6a6a6a; font-size: 10px; line-height: 1.7; }
+
+    /* ── server.properties 설정 패널 ── */
+    .prop-group-title {
+      color: var(--mc-gray);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      margin: 8px 0 4px;
+      text-transform: uppercase;
+    }
+    .prop-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #1e1e1e;
+      gap: 8px;
+    }
+    .prop-row:last-child { border-bottom: none; }
+    .prop-label { color: var(--mc-white); font-size: 10px; flex: 1; text-shadow: 1px 1px 0 rgba(0,0,0,.85); }
+    .prop-label small { color: var(--mc-gray); font-size: 9px; display: block; line-height: 1.4; }
+    .prop-ctrl { flex-shrink: 0; }
+    .mc-toggle { position: relative; width: 38px; height: 18px; display: block; }
+    .mc-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .mc-toggle .t-track {
+      position: absolute; inset: 0;
+      background: #3a3a3a;
+      border: 2px solid; border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      cursor: pointer;
+    }
+    .mc-toggle .t-track::after {
+      content: ''; position: absolute;
+      width: 10px; height: 10px;
+      top: 2px; left: 2px;
+      background: #6a6a6a;
+      transition: transform .12s, background .12s;
+    }
+    .mc-toggle input:checked + .t-track { background: #1a4a1a; }
+    .mc-toggle input:checked + .t-track::after { transform: translateX(18px); background: var(--mc-green); }
+    .prop-select {
+      font-family: var(--font-ui); font-size: 10px;
+      color: var(--mc-white); background: var(--mc-bg2);
+      border: 2px solid; border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      padding: 3px 20px 3px 5px; cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23aaaaaa'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 5px center;
+      outline: none; min-width: 90px;
+    }
+    .prop-select option { background: #2a2a2a; }
+    .prop-num {
+      font-family: var(--font-ui); font-size: 10px;
+      color: var(--mc-white); background: var(--mc-bg2);
+      border: 2px solid; border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      padding: 3px 5px; width: 62px; outline: none; text-align: right;
+    }
+    .prop-txt {
+      font-family: var(--font-ui); font-size: 10px;
+      color: var(--mc-white); background: var(--mc-bg2);
+      border: 2px solid; border-color: var(--btn-sh) var(--btn-hi) var(--btn-hi) var(--btn-sh);
+      padding: 3px 5px; width: 130px; outline: none;
+    }
+    #srvPropModal .modal-box { width: 400px; max-height: 82vh; overflow-y: auto; }
+    #srvPropModal .modal-box::-webkit-scrollbar { width: 6px; }
+    #srvPropModal .modal-box::-webkit-scrollbar-thumb { background: #555; }
   </style>
 </head>
 <body>
@@ -652,6 +717,7 @@
           </div>
         </div>
         <button class="mc-btn sm" onclick="saveConfig()">설정 저장</button>
+        <button class="mc-btn sm" onclick="openSrvPropModal()" style="margin-top:4px;">서버 세부 설정 ▶</button>
       </div>
     </div>
 
@@ -784,6 +850,114 @@
       </div>
       <div class="modal-hint">토큰 없이 접속하면 MEMBER 권한으로 참여합니다.</div>
       <button class="mc-btn t-green" onclick="authenticate()">접속하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── server.properties 설정 모달 ── -->
+<div id="srvPropModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeSrvPropModal()">
+  <div class="modal-box">
+    <div class="modal-title">서버 세부 설정</div>
+
+    <!-- 게임플레이 -->
+    <div class="prop-group-title">게임플레이</div>
+    <div class="prop-row">
+      <span class="prop-label">게임모드<small>기본 게임모드</small></span>
+      <select id="sp-gamemode" class="prop-select">
+        <option value="survival">서바이벌</option>
+        <option value="creative">크리에이티브</option>
+        <option value="adventure">어드벤처</option>
+        <option value="spectator">관전</option>
+      </select>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">난이도<small>서버 난이도</small></span>
+      <select id="sp-difficulty" class="prop-select">
+        <option value="peaceful">평화로움</option>
+        <option value="easy">쉬움</option>
+        <option value="normal">보통</option>
+        <option value="hard">어려움</option>
+      </select>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">커맨드 블록<small>커맨드 블록 사용 허용</small></span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-enable-command-block"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">PVP<small>플레이어 간 전투</small></span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-pvp"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">비행 허용<small>서바이벌 모드 비행 (치트 없이)</small></span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-allow-flight"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">강제 게임모드<small>접속 시 기본 게임모드 강제 적용</small></span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-force-gamemode"><span class="t-track"></span></label>
+    </div>
+
+    <!-- 스폰 -->
+    <div class="prop-group-title">스폰</div>
+    <div class="prop-row">
+      <span class="prop-label">몬스터 스폰</span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-spawn-monsters"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">동물 스폰</span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-spawn-animals"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">NPC 스폰<small>마을 주민</small></span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-spawn-npcs"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">스폰 보호 범위<small>스폰 주변 보호 블록 수</small></span>
+      <input type="number" id="sp-spawn-protection" class="prop-num" min="0" max="100"/>
+    </div>
+
+    <!-- 서버 -->
+    <div class="prop-group-title">서버</div>
+    <div class="prop-row">
+      <span class="prop-label">최대 플레이어 수</span>
+      <input type="number" id="sp-max-players" class="prop-num" min="1" max="100"/>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">뷰 거리<small>청크 렌더 거리</small></span>
+      <input type="number" id="sp-view-distance" class="prop-num" min="2" max="32"/>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">시뮬레이션 거리<small>엔티티 활성 거리</small></span>
+      <input type="number" id="sp-simulation-distance" class="prop-num" min="2" max="32"/>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">네더 허용</span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-allow-nether"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">온라인 모드<small>정품 인증 (끄면 비정품 접속 가능)</small></span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-online-mode"><span class="t-track"></span></label>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">화이트리스트</span>
+      <label class="mc-toggle prop-ctrl"><input type="checkbox" id="sp-white-list"><span class="t-track"></span></label>
+    </div>
+
+    <!-- 월드 / MOTD -->
+    <div class="prop-group-title">월드 / 기타</div>
+    <div class="prop-row">
+      <span class="prop-label">월드 씨드<small>새 월드 생성 시 적용</small></span>
+      <input type="text" id="sp-level-seed" class="prop-txt" placeholder="랜덤"/>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">서버 설명 (MOTD)</span>
+      <input type="text" id="sp-motd" class="prop-txt" placeholder="A Minecraft Server"/>
+    </div>
+
+    <div id="srvPropStatus" style="font-size:10px;color:var(--mc-green);margin-top:10px;min-height:14px;"></div>
+    <div style="font-size:9px;color:var(--mc-dkgray);margin-bottom:10px;">⚠ 대부분의 설정은 서버 재시작 후 적용됩니다</div>
+    <div class="mc-row" style="gap:6px;">
+      <button class="mc-btn sm t-red" onclick="closeSrvPropModal()" style="flex:1;">닫기</button>
+      <button class="mc-btn sm t-green" onclick="saveSrvProps()" style="flex:1;">저장</button>
     </div>
   </div>
 </div>
@@ -1790,6 +1964,94 @@ function resetBg() {
   const url = localStorage.getItem('devkit_bg_url');
   if (url) applyBg(url);
 })();
+
+// ── server.properties 설정 ──────────────────────────────────────────────────
+async function openSrvPropModal() {
+  document.getElementById('srvPropModal').style.display = 'flex';
+  document.getElementById('srvPropStatus').textContent = '불러오는 중...';
+  try {
+    const { props } = await fetch('/api/server-properties').then(r => r.json());
+    const setCheck = (id, key, def) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = (props[key] ?? def) === 'true';
+    };
+    const setVal = (id, key, def) => {
+      const el = document.getElementById(id);
+      if (el) el.value = props[key] ?? def;
+    };
+    setVal('sp-gamemode',           'gamemode',           'survival');
+    setVal('sp-difficulty',         'difficulty',         'easy');
+    setCheck('sp-enable-command-block', 'enable-command-block', 'false');
+    setCheck('sp-pvp',              'pvp',                'true');
+    setCheck('sp-allow-flight',     'allow-flight',       'false');
+    setCheck('sp-force-gamemode',   'force-gamemode',     'false');
+    setCheck('sp-spawn-monsters',   'spawn-monsters',     'true');
+    setCheck('sp-spawn-animals',    'spawn-animals',      'true');
+    setCheck('sp-spawn-npcs',       'spawn-npcs',         'true');
+    setVal('sp-spawn-protection',   'spawn-protection',   '16');
+    setVal('sp-max-players',        'max-players',        '20');
+    setVal('sp-view-distance',      'view-distance',      '10');
+    setVal('sp-simulation-distance','simulation-distance','10');
+    setCheck('sp-allow-nether',     'allow-nether',       'true');
+    setCheck('sp-online-mode',      'online-mode',        'true');
+    setCheck('sp-white-list',       'white-list',         'false');
+    setVal('sp-level-seed',         'level-seed',         '');
+    setVal('sp-motd',               'motd',               '');
+    document.getElementById('srvPropStatus').textContent = '';
+  } catch (e) {
+    document.getElementById('srvPropStatus').textContent = '불러오기 실패: ' + e.message;
+  }
+}
+
+function closeSrvPropModal() {
+  document.getElementById('srvPropModal').style.display = 'none';
+}
+
+async function saveSrvProps() {
+  const getCheck = id => String(document.getElementById(id)?.checked ?? false);
+  const getVal   = id => document.getElementById(id)?.value ?? '';
+  const props = {
+    'gamemode':              getVal('sp-gamemode'),
+    'difficulty':            getVal('sp-difficulty'),
+    'enable-command-block':  getCheck('sp-enable-command-block'),
+    'pvp':                   getCheck('sp-pvp'),
+    'allow-flight':          getCheck('sp-allow-flight'),
+    'force-gamemode':        getCheck('sp-force-gamemode'),
+    'spawn-monsters':        getCheck('sp-spawn-monsters'),
+    'spawn-animals':         getCheck('sp-spawn-animals'),
+    'spawn-npcs':            getCheck('sp-spawn-npcs'),
+    'spawn-protection':      getVal('sp-spawn-protection'),
+    'max-players':           getVal('sp-max-players'),
+    'view-distance':         getVal('sp-view-distance'),
+    'simulation-distance':   getVal('sp-simulation-distance'),
+    'allow-nether':          getCheck('sp-allow-nether'),
+    'online-mode':           getCheck('sp-online-mode'),
+    'white-list':            getCheck('sp-white-list'),
+    'level-seed':            getVal('sp-level-seed'),
+    'motd':                  getVal('sp-motd'),
+  };
+  const status = document.getElementById('srvPropStatus');
+  status.style.color = 'var(--mc-gray)';
+  status.textContent = '저장 중...';
+  try {
+    const res = await fetch('/api/server-properties', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(props),
+    }).then(r => r.json());
+    if (res.ok) {
+      status.style.color = 'var(--mc-green)';
+      status.textContent = '저장됨 ✓';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    } else {
+      status.style.color = 'var(--mc-red)';
+      status.textContent = '오류: ' + res.error;
+    }
+  } catch (e) {
+    status.style.color = 'var(--mc-red)';
+    status.textContent = '오류: ' + e.message;
+  }
+}
 
 init();
 connect();

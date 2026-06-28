@@ -474,6 +474,57 @@ function startServer(port) {
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    // ── server.properties ────────────────────────────────────────────────────
+    function parseProperties(text) {
+      const result = {};
+      for (const line of text.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t.startsWith('#') || t.startsWith('!')) continue;
+        const eq = t.indexOf('=');
+        if (eq === -1) continue;
+        result[t.slice(0, eq).trim()] = t.slice(eq + 1);
+      }
+      return result;
+    }
+
+    function stringifyProperties(updates, originalText) {
+      const updated = new Set();
+      const lines = originalText.split(/\r?\n/).map(line => {
+        const t = line.trim();
+        if (!t || t.startsWith('#') || t.startsWith('!')) return line;
+        const eq = t.indexOf('=');
+        if (eq === -1) return line;
+        const key = t.slice(0, eq).trim();
+        if (key in updates) { updated.add(key); return `${key}=${updates[key]}`; }
+        return line;
+      });
+      for (const [key, val] of Object.entries(updates))
+        if (!updated.has(key)) lines.push(`${key}=${val}`);
+      return lines.join('\n');
+    }
+
+    app.get('/api/server-properties', async (_, res) => {
+      const file = path.join(activeServerDir(), 'server.properties');
+      try {
+        const text = await fs.readFile(file, 'utf8');
+        res.json({ ok: true, props: parseProperties(text) });
+      } catch (e) {
+        if (e.code === 'ENOENT') res.json({ ok: true, props: {} });
+        else res.status(500).json({ error: e.message });
+      }
+    });
+
+    app.post('/api/server-properties', async (req, res) => {
+      const file = path.join(activeServerDir(), 'server.properties');
+      try {
+        let original = '';
+        try { original = await fs.readFile(file, 'utf8'); } catch {}
+        await fs.writeFile(file, stringifyProperties(req.body, original), 'utf8');
+        teamManager?.broadcastLog('[DevKit] server.properties 저장 완료 ✓ (재시작 후 적용)');
+        res.json({ ok: true });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     // 30초마다 TPS 조회 (main thread 간섭 최소화)
     setInterval(async () => {
       if (serverManager.getStatus() !== 'running') return;
