@@ -47,12 +47,21 @@ class ServerManager {
       }
     }
 
-    // 1. 시스템 Java 확인
+    // 1. 시스템 Java 확인 (17–21만 허용, 그 외는 내부 JRE 21 사용)
     try {
-      const ver = execSync('java -version 2>&1', { encoding: 'utf8' }).split('\n')[0];
-      this.onLog(`[DevKit] Java 발견: ${ver}`);
-      this._javaPath = 'java';
-      return 'java';
+      const out   = execSync('java -version 2>&1', { encoding: 'utf8' });
+      const ver   = out.split('\n')[0];
+      const m     = ver.match(/"([\d.]+)"/);
+      if (m) {
+        const parts = m[1].split('.');
+        const major = parts[0] === '1' ? parseInt(parts[1]) : parseInt(parts[0]);
+        if (major >= 17 && major <= 21) {
+          this.onLog(`[DevKit] 시스템 Java ${major} 사용`);
+          this._javaPath = 'java';
+          return 'java';
+        }
+        this.onLog(`[DevKit] Java ${major} 감지 — 호환 범위(17–21) 아님, 내부 JRE 21로 대체합니다.`);
+      }
     } catch {}
 
     // 2. 이전에 내려받은 JRE 재사용
