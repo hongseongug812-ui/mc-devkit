@@ -700,6 +700,7 @@
             <option value="paper">Paper (플러그인)</option>
             <option value="fabric">Fabric (모드)</option>
             <option value="mohist">Mohist (모드+플러그인)</option>
+            <option value="arclight">Arclight (모드+플러그인)</option>
           </select>
         </div>
         <div class="mc-grid2">
@@ -1530,23 +1531,25 @@ function onServerTypeChange() {
   const type      = document.getElementById('cfgServerType').value;
   const isFabric  = type === 'fabric';
   const isMohist  = type === 'mohist';
+  const isArclight= type === 'arclight';
   const isPaper   = type === 'paper';
+  const isHybrid  = isMohist || isArclight;
 
   document.getElementById('cfgVersionLabel').textContent = 'MC 버전';
 
-  // 플러그인 섹션: paper + mohist
+  // 플러그인 섹션: paper + 하이브리드
   document.querySelectorAll('.plugin-only').forEach(el => {
-    el.style.display = (isPaper || isMohist) ? '' : 'none';
+    el.style.display = (isPaper || isHybrid) ? '' : 'none';
   });
-  // 모드 섹션: fabric + mohist
+  // 모드 섹션: fabric + 하이브리드
   document.querySelectorAll('.fabric-only').forEach(el => {
-    el.style.display = (isFabric || isMohist) ? '' : 'none';
+    el.style.display = (isFabric || isHybrid) ? '' : 'none';
   });
 
   const cur = document.getElementById('cfgVersion').value;
   loadVersionList(cur === '로딩 중...' ? null : cur);
-  if (isFabric || isMohist) loadMods();
-  if (isPaper  || isMohist) loadPlugins();
+  if (isFabric || isHybrid) loadMods();
+  if (isPaper  || isHybrid) loadPlugins();
 }
 
 async function saveConfig() {
@@ -1574,9 +1577,10 @@ async function loadPermissions() {
 async function loadVersionList(selectedVersion) {
   const sel  = document.getElementById('cfgVersion');
   const type = document.getElementById('cfgServerType').value;
-  const endpoint = type === 'fabric'  ? '/api/fabric-versions'
-                 : type === 'mohist'  ? '/api/mohist-versions'
-                 :                      '/api/paper-versions';
+  const endpoint = type === 'fabric'   ? '/api/fabric-versions'
+                 : type === 'mohist'   ? '/api/mohist-versions'
+                 : type === 'arclight' ? '/api/arclight-versions'
+                 :                       '/api/paper-versions';
   sel.innerHTML    = '<option>로딩 중...</option>';
   try {
     const versions = await fetch(endpoint).then(r => r.json());

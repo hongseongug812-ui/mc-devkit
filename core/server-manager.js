@@ -11,7 +11,8 @@ const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
 const MOJANG_META  = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
-const MOHIST_API   = 'https://mohistmc.com/api/v2/projects/mohist';
+const MOHIST_API        = 'https://mohistmc.com/api/v2/projects/mohist';
+const ARCLIGHT_RELEASES = 'https://api.github.com/repos/IzzelAliz/Arclight/releases';
 const JRE_DIR      = path.join(os.homedir(), '.mc-devkit', 'jre');
 
 class ServerManager {
@@ -267,6 +268,55 @@ class ServerManager {
     this.onLog('[DevKit] ⚠ 최초 실행 시 Forge 설치로 수 분 소요될 수 있습니다.');
   }
 
+  // ── Arclight 서버 jar 확보 (Forge/NeoForge + Bukkit 하이브리드) ──────────────
+  async _ensureArclight() {
+    const jarPath = path.join(this._dir, 'arclight.jar');
+    const verFile = path.join(this._dir, '.arclight-version');
+    const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
+
+    if (savedVer !== this.config.version && await fs.pathExists(jarPath)) {
+      this.onLog(`[DevKit] Arclight 버전 변경 (${savedVer} → ${this.config.version}), 재다운로드 중...`);
+      await fs.remove(jarPath);
+    }
+
+    if (await fs.pathExists(jarPath)) return;
+
+    this.onLog(`[DevKit] Arclight ${this.config.version} 최신 릴리스 검색 중...`);
+    await fs.ensureDir(this._dir);
+
+    const { data: releases } = await axios.get(
+      `${ARCLIGHT_RELEASES}?per_page=50`,
+      { headers: { 'User-Agent': 'mc-devkit' }, timeout: 15000 }
+    );
+
+    let downloadUrl = null;
+    let assetName   = null;
+
+    // forge → neoforge → fabric 순으로 우선 선택
+    for (const rel of releases) {
+      if (rel.prerelease || rel.tag_name.includes('SNAPSHOT')) continue;
+      for (const loader of ['forge', 'neoforge', 'fabric']) {
+        const asset = rel.assets.find(a =>
+          a.name.startsWith(`arclight-${loader}-${this.config.version}-`)
+        );
+        if (asset) { downloadUrl = asset.browser_download_url; assetName = asset.name; break; }
+      }
+      if (downloadUrl) break;
+    }
+
+    if (!downloadUrl) throw new Error(`Arclight ${this.config.version} 다운로드 URL을 찾을 수 없습니다.`);
+
+    this.onLog(`[DevKit] Arclight 다운로드 중... (${assetName})`);
+    const resp = await axios.get(downloadUrl, {
+      responseType: 'arraybuffer', maxRedirects: 10,
+      headers: { 'User-Agent': 'mc-devkit' }, timeout: 180000,
+    });
+    await fs.writeFile(jarPath, resp.data);
+    await fs.writeFile(verFile, this.config.version);
+    this.onLog('[DevKit] Arclight 다운로드 완료 ✓');
+    this.onLog('[DevKit] ⚠ 최초 실행 시 Forge/NeoForge 설치로 수 분 소요될 수 있습니다.');
+  }
+
   // ── Vanilla 서버 jar 확보 ──────────────────────────────────────────────────
   async _ensureVanilla() {
     const jarPath = path.join(this._dir, 'server.jar');
@@ -501,6 +551,11 @@ class ServerManager {
         await this._ensurePlugManX();
         jarArgs = ['mohist.jar', 'nogui'];
         this.onLog('[DevKit] Mohist 서버 시작 중... (모드+플러그인 하이브리드)');
+      } else if (this.config.serverType === 'arclight') {
+        await this._ensureArclight();
+        await this._ensurePlugManX();
+        jarArgs = ['arclight.jar', '--nogui'];
+        this.onLog('[DevKit] Arclight 서버 시작 중... (모드+플러그인 하이브리드)');
       } else {
         await this._ensurePaper();
         await this._ensurePlugManX();

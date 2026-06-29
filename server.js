@@ -218,6 +218,32 @@ function startServer(port) {
       } catch { res.json([]); }
     });
 
+    app.get('/api/arclight-versions', async (_, res) => {
+      try {
+        const { data: releases } = await axios.get(
+          'https://api.github.com/repos/IzzelAliz/Arclight/releases?per_page=50',
+          { headers: { 'User-Agent': 'mc-devkit' }, timeout: 10000 }
+        );
+        const versionSet = new Set();
+        for (const rel of releases) {
+          if (rel.prerelease || rel.tag_name.includes('SNAPSHOT')) continue;
+          for (const asset of rel.assets) {
+            const m = asset.name.match(/arclight-(?:forge|neoforge|fabric)-([\d.]+)-/);
+            if (m) versionSet.add(m[1]);
+          }
+        }
+        const sorted = [...versionSet].sort((a, b) => {
+          const av = a.split('.').map(Number), bv = b.split('.').map(Number);
+          for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+            const d = (bv[i] || 0) - (av[i] || 0);
+            if (d !== 0) return d;
+          }
+          return 0;
+        });
+        res.json(sorted);
+      } catch { res.json([]); }
+    });
+
     app.get('/api/mohist-versions', async (_, res) => {
       try {
         const { data } = await axios.get('https://mohistmc.com/api/v2/projects/mohist',
