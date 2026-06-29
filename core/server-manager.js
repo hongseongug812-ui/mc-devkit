@@ -47,7 +47,7 @@ class ServerManager {
       }
     }
 
-    // 1. 시스템 Java 확인 (17–21만 허용, 그 외는 내부 JRE 21 사용)
+    // 1. 시스템 Java 확인 (17 미만만 내부 JRE 21로 대체)
     try {
       const out   = execSync('java -version 2>&1', { encoding: 'utf8' });
       const ver   = out.split('\n')[0];
@@ -55,12 +55,12 @@ class ServerManager {
       if (m) {
         const parts = m[1].split('.');
         const major = parts[0] === '1' ? parseInt(parts[1]) : parseInt(parts[0]);
-        if (major >= 17 && major <= 21) {
+        if (major >= 17) {
           this.onLog(`[DevKit] 시스템 Java ${major} 사용`);
           this._javaPath = 'java';
           return 'java';
         }
-        this.onLog(`[DevKit] Java ${major} 감지 — 호환 범위(17–21) 아님, 내부 JRE 21로 대체합니다.`);
+        this.onLog(`[DevKit] Java ${major} 감지 — Java 17 미만은 지원하지 않습니다. 내부 JRE 21로 대체합니다.`);
       }
     } catch {}
 
