@@ -612,6 +612,7 @@ class ServerManager {
     } catch (err) {
       this.status = 'stopped';
       this.onLog(`[DevKit] 시작 실패: ${err.message}`);
+      this.onLog(`[DevKit] 스택: ${(err.stack || '').split('\n').slice(0, 6).join(' → ')}`);
       throw err;
     }
 
