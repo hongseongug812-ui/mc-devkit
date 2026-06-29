@@ -218,6 +218,14 @@ function startServer(port) {
       } catch { res.json([]); }
     });
 
+    app.get('/api/mohist-versions', async (_, res) => {
+      try {
+        const { data } = await axios.get('https://mohistmc.com/api/v2/projects/mohist',
+          { headers: { 'User-Agent': 'mc-devkit' }, timeout: 8000 });
+        res.json(([...( data.versions ?? [])]).reverse());
+      } catch { res.json([]); }
+    });
+
     // ── 권한 API ──────────────────────────────────────────────────────────
     app.get('/api/permissions', (_, res) => res.json(teamManager.getPermissions()));
     app.post('/api/permissions', (req, res) => { teamManager.setPermissions(req.body); res.json({ ok: true }); });

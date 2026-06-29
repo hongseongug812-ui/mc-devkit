@@ -11,6 +11,7 @@ const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
 const MOJANG_META  = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
+const MOHIST_API   = 'https://mohistmc.com/api/v2/projects/mohist';
 const JRE_DIR      = path.join(os.homedir(), '.mc-devkit', 'jre');
 
 class ServerManager {
@@ -227,6 +228,43 @@ class ServerManager {
     });
     await fs.writeFile(verFile, this.config.version);
     this.onLog('[DevKit] Fabric 설치 완료 ✓');
+  }
+
+  // ── Mohist 서버 jar 확보 (Forge + Bukkit 하이브리드) ─────────────────────────
+  async _ensureMohist() {
+    const jarPath = path.join(this._dir, 'mohist.jar');
+    const verFile = path.join(this._dir, '.mohist-version');
+    const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
+
+    if (savedVer !== this.config.version && await fs.pathExists(jarPath)) {
+      this.onLog(`[DevKit] Mohist 버전 변경 (${savedVer} → ${this.config.version}), 재다운로드 중...`);
+      await fs.remove(jarPath);
+    }
+
+    if (await fs.pathExists(jarPath)) return;
+
+    this.onLog(`[DevKit] Mohist ${this.config.version} 다운로드 중...`);
+    await fs.ensureDir(this._dir);
+
+    const { data } = await axios.get(
+      `${MOHIST_API}/versions/${this.config.version}/builds`,
+      { headers: { 'User-Agent': 'mc-devkit' }, timeout: 15000 }
+    );
+    const builds = data.builds ?? [];
+    if (!builds.length) throw new Error(`Mohist ${this.config.version} 빌드를 찾을 수 없습니다.`);
+
+    const latest = builds.at(-1);
+    const url = latest.url;
+    if (!url) throw new Error('Mohist 다운로드 URL을 찾을 수 없습니다.');
+
+    const resp = await axios.get(url, {
+      responseType: 'arraybuffer', maxRedirects: 10,
+      headers: { 'User-Agent': 'mc-devkit' }, timeout: 180000,
+    });
+    await fs.writeFile(jarPath, resp.data);
+    await fs.writeFile(verFile, this.config.version);
+    this.onLog('[DevKit] Mohist 다운로드 완료 ✓');
+    this.onLog('[DevKit] ⚠ 최초 실행 시 Forge 설치로 수 분 소요될 수 있습니다.');
   }
 
   // ── Vanilla 서버 jar 확보 ──────────────────────────────────────────────────
@@ -458,6 +496,11 @@ class ServerManager {
         await this._ensureVanilla();
         jarArgs = ['server.jar', '--nogui'];
         this.onLog('[DevKit] Vanilla 서버 시작 중...');
+      } else if (this.config.serverType === 'mohist') {
+        await this._ensureMohist();
+        await this._ensurePlugManX();
+        jarArgs = ['mohist.jar', 'nogui'];
+        this.onLog('[DevKit] Mohist 서버 시작 중... (모드+플러그인 하이브리드)');
       } else {
         await this._ensurePaper();
         await this._ensurePlugManX();

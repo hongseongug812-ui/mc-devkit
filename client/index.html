@@ -699,6 +699,7 @@
           <select id="cfgServerType" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;" onchange="onServerTypeChange()">
             <option value="paper">Paper (플러그인)</option>
             <option value="fabric">Fabric (모드)</option>
+            <option value="mohist">Mohist (모드+플러그인)</option>
           </select>
         </div>
         <div class="mc-grid2">
@@ -1526,13 +1527,26 @@ async function pickDir(id) {
 }
 
 function onServerTypeChange() {
-  const isFabric = document.getElementById('cfgServerType').value === 'fabric';
-  document.getElementById('cfgVersionLabel').textContent = isFabric ? 'MC 버전' : 'Paper 버전';
-  document.querySelectorAll('.plugin-only').forEach(el => { el.style.display = isFabric ? 'none' : ''; });
-  document.querySelectorAll('.fabric-only').forEach(el => { el.style.display = isFabric ? '' : 'none'; });
+  const type      = document.getElementById('cfgServerType').value;
+  const isFabric  = type === 'fabric';
+  const isMohist  = type === 'mohist';
+  const isPaper   = type === 'paper';
+
+  document.getElementById('cfgVersionLabel').textContent = 'MC 버전';
+
+  // 플러그인 섹션: paper + mohist
+  document.querySelectorAll('.plugin-only').forEach(el => {
+    el.style.display = (isPaper || isMohist) ? '' : 'none';
+  });
+  // 모드 섹션: fabric + mohist
+  document.querySelectorAll('.fabric-only').forEach(el => {
+    el.style.display = (isFabric || isMohist) ? '' : 'none';
+  });
+
   const cur = document.getElementById('cfgVersion').value;
   loadVersionList(cur === '로딩 중...' ? null : cur);
-  if (isFabric) loadMods();
+  if (isFabric || isMohist) loadMods();
+  if (isPaper  || isMohist) loadPlugins();
 }
 
 async function saveConfig() {
@@ -1558,9 +1572,11 @@ async function loadPermissions() {
 }
 
 async function loadVersionList(selectedVersion) {
-  const sel        = document.getElementById('cfgVersion');
-  const isFabric   = document.getElementById('cfgServerType').value === 'fabric';
-  const endpoint   = isFabric ? '/api/fabric-versions' : '/api/paper-versions';
+  const sel  = document.getElementById('cfgVersion');
+  const type = document.getElementById('cfgServerType').value;
+  const endpoint = type === 'fabric'  ? '/api/fabric-versions'
+                 : type === 'mohist'  ? '/api/mohist-versions'
+                 :                      '/api/paper-versions';
   sel.innerHTML    = '<option>로딩 중...</option>';
   try {
     const versions = await fetch(endpoint).then(r => r.json());
