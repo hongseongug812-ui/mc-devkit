@@ -141,7 +141,7 @@ class ServerManager {
     this.onLog('[DevKit] PlugManX 다운로드 중...');
     try {
       const { data: releases } = await axios.get(
-        'https://api.github.com/repos/TheAbsolutionism/PlugManX/releases',
+        'https://api.github.com/repos/tiecia/PlugManX-releases/releases',
         { headers: { 'User-Agent': 'mc-devkit' } }
       );
       const rel   = releases[0];
