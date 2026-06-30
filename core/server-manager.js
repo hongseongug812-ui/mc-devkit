@@ -257,11 +257,11 @@ class ServerManager {
     await fs.ensureDir(this._dir);
 
     const { data } = await axios.get(
-      `${MOHIST_API}/versions/${this.config.version}/builds`,
+      `${MOHIST_API}/${this.config.version}/builds`,
       { headers: { 'User-Agent': 'mc-devkit' }, timeout: 15000 }
     );
     const builds = data.builds ?? [];
-    if (!builds.length) throw new Error(`Mohist ${this.config.version} 빌드를 찾을 수 없습니다.`);
+    if (!builds.length) throw new Error(`Mohist ${this.config.version} 빌드가 아직 없습니다. Mohist 공식 사이트에서 지원 버전을 확인하거나 1.20.1 등 다른 버전을 사용해주세요.`);
 
     const latest = builds.at(-1);
     const url = latest.url;
