@@ -427,11 +427,37 @@ function startServer(port) {
         for (const w of ['world', 'world_nether', 'world_the_end'])
           await fs.remove(path.join(serverDirAbs, w)).catch(() => {});
 
-        await execAsync(
-          `powershell -NoProfile -Command "Expand-Archive -Path '${tmpZip}' -DestinationPath '${serverDirAbs}' -Force"`,
-          { timeout: 120000 }
-        );
-        await fs.remove(tmpZip);
+        const tmpExtract = path.join(os.tmpdir(), `world-extract-${Date.now()}`);
+        await fs.ensureDir(tmpExtract);
+        try {
+          await execAsync(
+            `powershell -NoProfile -Command "Expand-Archive -Path '${tmpZip}' -DestinationPath '${tmpExtract}' -Force"`,
+            { timeout: 120000 }
+          );
+
+          const worldNames = ['world', 'world_nether', 'world_the_end'];
+          let worldBase = tmpExtract;
+          const rootEntries = await fs.readdir(tmpExtract);
+          if (!rootEntries.some(e => worldNames.includes(e))) {
+            for (const entry of rootEntries) {
+              const entryPath = path.join(tmpExtract, entry);
+              if ((await fs.stat(entryPath)).isDirectory()) {
+                const sub = await fs.readdir(entryPath);
+                if (sub.some(e => worldNames.includes(e))) { worldBase = entryPath; break; }
+              }
+            }
+          }
+
+          await fs.ensureDir(serverDirAbs);
+          for (const w of worldNames) {
+            const src = path.join(worldBase, w);
+            if (await fs.pathExists(src))
+              await fs.move(src, path.join(serverDirAbs, w), { overwrite: true });
+          }
+        } finally {
+          await fs.remove(tmpExtract).catch(() => {});
+          await fs.remove(tmpZip).catch(() => {});
+        }
         teamManager?.broadcastLog(`[DevKit] 월드 업로드 완료 ✓ (${name})`);
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }

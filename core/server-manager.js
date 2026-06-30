@@ -542,6 +542,7 @@ class ServerManager {
 
     try {
       const javaPath = await this._ensureJava();
+      await fs.ensureDir(this._dir);
       await fs.writeFile(path.join(this._dir, 'eula.txt'), 'eula=true\n');
       await this._writeServerProps();
 
