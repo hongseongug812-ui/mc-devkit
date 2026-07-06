@@ -6,7 +6,7 @@ const path = require('path');
 const os   = require('os');
 const axios = require('axios');
 
-const PAPER_API    = 'https://api.papermc.io/v2/projects/paper';
+const PURPUR_API   = 'https://api.purpurmc.org/v2/purpur';
 const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
@@ -125,14 +125,11 @@ class ServerManager {
     return javaExe;
   }
 
-  // ── Paper 최신 빌드 번호 조회 ──────────────────────────────────────────────
+  // ── Purpur 최신 빌드 번호 조회 ─────────────────────────────────────────────
   async _getLatestBuild(version) {
-    const { data } = await axios.get(`${PAPER_API}/versions/${version}/builds`);
-    const all    = data.builds ?? [];
-    const stable = all.filter(b => b.channel === 'default');
-    const latest = (stable.length ? stable : all).at(-1);
-    if (!latest) throw new Error(`Paper ${version} 빌드를 찾을 수 없습니다.`);
-    return latest.build;
+    const { data } = await axios.get(`${PURPUR_API}/${version}/latest`);
+    if (!data.build) throw new Error(`Paper(Purpur) ${version} 빌드를 찾을 수 없습니다.`);
+    return data.build;
   }
 
   // ── PlugManX 자동 설치 ──────────────────────────────────────────────────────
@@ -192,9 +189,7 @@ class ServerManager {
     }
 
     this.onLog(`[DevKit] Paper ${this.config.version} 다운로드 중...`);
-    const build   = await this._getLatestBuild(this.config.version);
-    const jarName = `paper-${this.config.version}-${build}.jar`;
-    const url     = `${PAPER_API}/versions/${this.config.version}/builds/${build}/downloads/${jarName}`;
+    const url = `${PURPUR_API}/${this.config.version}/latest/download`;
 
     await fs.ensureDir(this._dir);
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
