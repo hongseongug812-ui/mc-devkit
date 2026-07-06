@@ -206,8 +206,8 @@ function startServer(port) {
 
     app.get('/api/paper-versions', async (_, res) => {
       try {
-        const { data } = await axios.get('https://api.papermc.io/v2/projects/paper', { timeout: 8000 });
-        res.json(([...data.versions]).reverse());
+        const { data } = await axios.get('https://api.purpurmc.org/v2/purpur', { timeout: 8000 });
+        res.json(([...(data.versions ?? [])]).reverse());
       } catch { res.json([]); }
     });
 
@@ -451,8 +451,10 @@ function startServer(port) {
           await fs.ensureDir(serverDirAbs);
           for (const w of worldNames) {
             const src = path.join(worldBase, w);
-            if (await fs.pathExists(src))
+            if (await fs.pathExists(src)) {
               await fs.move(src, path.join(serverDirAbs, w), { overwrite: true });
+              await fs.remove(path.join(serverDirAbs, w, 'session.lock')).catch(() => {});
+            }
           }
         } finally {
           await fs.remove(tmpExtract).catch(() => {});

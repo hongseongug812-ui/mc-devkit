@@ -540,10 +540,10 @@ class ServerManager {
   // ── 서버 시작 (완전 자동) ──────────────────────────────────────────────────
   async start() {
     if (this.status !== 'stopped') throw new Error('서버가 이미 실행 중입니다.');
-    await this._killOrphan();
-
     this.status    = 'starting';
     this._stopping = false;
+
+    await this._killOrphan();
 
     try {
       const javaPath = await this._ensureJava();
