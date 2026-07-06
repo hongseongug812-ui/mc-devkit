@@ -436,26 +436,58 @@ function startServer(port) {
           );
 
           const worldNames = ['world', 'world_nether', 'world_the_end'];
-          let worldBase = tmpExtract;
-          const rootEntries = await fs.readdir(tmpExtract);
-          if (!rootEntries.some(e => worldNames.includes(e))) {
-            for (const entry of rootEntries) {
-              const entryPath = path.join(tmpExtract, entry);
-              if ((await fs.stat(entryPath)).isDirectory()) {
-                const sub = await fs.readdir(entryPath);
-                if (sub.some(e => worldNames.includes(e))) { worldBase = entryPath; break; }
+
+          // level.dat 위치로 월드 루트 탐색 (최대 2단계 깊이)
+          const findWorldBase = async (dir, depth = 0) => {
+            const entries = await fs.readdir(dir);
+            if (entries.includes('level.dat')) return dir;
+            if (depth >= 2) return null;
+            for (const entry of entries) {
+              const sub = path.join(dir, entry);
+              if ((await fs.stat(sub)).isDirectory()) {
+                const found = await findWorldBase(sub, depth + 1);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+
+          const detectedWorldDir = await findWorldBase(tmpExtract);
+          if (!detectedWorldDir) throw new Error('zip에서 월드 폴더(level.dat)를 찾을 수 없습니다. world 폴더를 포함한 zip인지 확인하세요.');
+
+          // 월드 루트가 직접 tmpExtract인지, 아니면 상위 폴더(world_nether 등 포함)인지 판단
+          const parentDir = path.dirname(detectedWorldDir);
+          const worldFolderName = path.basename(detectedWorldDir);
+
+          await fs.ensureDir(serverDirAbs);
+          let moved = 0;
+          if (worldFolderName === 'world' || !worldNames.includes(worldFolderName)) {
+            // detectedWorldDir 자체가 world 폴더거나, 이름이 다른 단일 월드 폴더
+            const dest = path.join(serverDirAbs, 'world');
+            await fs.move(detectedWorldDir, dest, { overwrite: true });
+            await fs.remove(path.join(dest, 'session.lock')).catch(() => {});
+            moved++;
+            // 형제 폴더에 world_nether, world_the_end가 있으면 함께 이동
+            for (const w of ['world_nether', 'world_the_end']) {
+              const sibling = path.join(parentDir, w);
+              if (await fs.pathExists(sibling)) {
+                await fs.move(sibling, path.join(serverDirAbs, w), { overwrite: true });
+                await fs.remove(path.join(serverDirAbs, w, 'session.lock')).catch(() => {});
+                moved++;
+              }
+            }
+          } else {
+            // worldNames 중 하나의 이름을 가진 폴더 → 형제 폴더 전체 이동
+            for (const w of worldNames) {
+              const src = path.join(parentDir, w);
+              if (await fs.pathExists(src)) {
+                await fs.move(src, path.join(serverDirAbs, w), { overwrite: true });
+                await fs.remove(path.join(serverDirAbs, w, 'session.lock')).catch(() => {});
+                moved++;
               }
             }
           }
-
-          await fs.ensureDir(serverDirAbs);
-          for (const w of worldNames) {
-            const src = path.join(worldBase, w);
-            if (await fs.pathExists(src)) {
-              await fs.move(src, path.join(serverDirAbs, w), { overwrite: true });
-              await fs.remove(path.join(serverDirAbs, w, 'session.lock')).catch(() => {});
-            }
-          }
+          teamManager?.broadcastLog(`[DevKit] 월드 폴더 ${moved}개 적용 완료`);
         } finally {
           await fs.remove(tmpExtract).catch(() => {});
           await fs.remove(tmpZip).catch(() => {});
