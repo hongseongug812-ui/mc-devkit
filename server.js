@@ -146,7 +146,7 @@ function requirePerm(perm) {
 function startServer(port) {
   return new Promise((resolve) => {
     const app = express();
-    app.use(express.json({ limit: '64mb' }));
+    app.use(express.json({ limit: '512mb' }));
     app.use(express.static(path.join(__dirname, 'client')));
 
     const httpServer = http.createServer(app);

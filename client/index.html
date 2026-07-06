@@ -718,6 +718,19 @@
             </select>
           </div>
         </div>
+        <div>
+          <label class="mc-label">렌더 거리 (청크)</label>
+          <select id="cfgViewDistance" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
+            <option value="4">4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+            <option value="10" selected>10 (기본)</option>
+            <option value="12">12</option>
+            <option value="16">16</option>
+            <option value="20">20</option>
+            <option value="32">32</option>
+          </select>
+        </div>
         <button class="mc-btn sm" onclick="saveConfig()">설정 저장</button>
         <button class="mc-btn sm" onclick="openSrvPropModal()" style="margin-top:4px;">서버 세부 설정 ▶</button>
       </div>
@@ -1482,20 +1495,30 @@ async function uploadWorld(input) {
   const file = input.files[0];
   if (!file) return;
   input.value = '';
-  if (!confirm(`${file.name} 을(를) 업로드하면 기존 월드가 교체됩니다. 계속할까요?`)) return;
-  appendLog(`[DevKit] 월드 업로드 중: ${file.name}`, 'devkit');
-  const data = await new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-  const resp = await authFetch('/api/world/upload', {
-    method: 'POST',
-    body: JSON.stringify({ name: file.name, data }),
-  });
-  if (!resp.ok) { const e = await resp.json(); appendLog(`[DevKit] 업로드 실패: ${e.error}`, 'error'); return; }
-  appendLog('[DevKit] 월드 업로드 완료 ✓', 'devkit');
+  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+  if (!confirm(`${file.name} (${sizeMB}MB) 을(를) 업로드하면 기존 월드가 교체됩니다. 계속할까요?`)) return;
+  appendLog(`[DevKit] 월드 업로드 중: ${file.name} (${sizeMB}MB)`, 'devkit');
+  try {
+    const data = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    const resp = await authFetch('/api/world/upload', {
+      method: 'POST',
+      body: JSON.stringify({ name: file.name, data }),
+    });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { const e = await resp.json(); msg = e.error || msg; } catch {}
+      appendLog(`[DevKit] 업로드 실패: ${msg}`, 'error');
+      return;
+    }
+    appendLog('[DevKit] 월드 업로드 완료 ✓', 'devkit');
+  } catch (e) {
+    appendLog(`[DevKit] 업로드 오류: ${e.message}`, 'error');
+  }
 }
 
 async function startTunnel() { await fetch('/api/tunnel/start', { method:'POST' }); }
@@ -1564,6 +1587,11 @@ async function saveConfig() {
       serverType:   document.getElementById('cfgServerType').value,
     }),
   });
+  const vd = document.getElementById('cfgViewDistance').value;
+  await fetch('/api/server-properties', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ 'view-distance': vd }),
+  });
   appendLog('[DevKit] 설정 저장됨', 'devkit');
 }
 
@@ -1618,6 +1646,14 @@ async function loadConfig() {
     [...stEl.options].forEach(o => { o.selected = (o.value === cfg.serverType); });
     onServerTypeChange();
   }
+  try {
+    const props = await fetch('/api/server-properties').then(r => r.json());
+    const vd = props.props?.['view-distance'];
+    if (vd) {
+      const vdEl = document.getElementById('cfgViewDistance');
+      [...vdEl.options].forEach(o => { o.selected = (o.value === String(vd)); });
+    }
+  } catch {}
 }
 
 function ts() {
