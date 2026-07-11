@@ -1834,7 +1834,7 @@ async function loadProfiles() {
     const thumbStyle = p.image
       ? `background-image:url('${p.image}');background-size:cover;background-position:center;`
       : `background:${meta.bg}`;
-    return `<div class="profile-card" onclick="loadProfile(${jn})" title="${esc(name)} 불러오기">
+    return `<div class="profile-card" onclick="loadProfile(${jn})" title="${escAttr(name)} 불러오기">
       <div class="profile-thumb" style="${thumbStyle}">
         ${p.image ? '' : `<span style="filter:drop-shadow(0 2px 4px #000)">${meta.icon}</span>`}
         ${ver ? `<div class="profile-ver-badge">${ver}</div>` : ''}
@@ -2067,7 +2067,7 @@ function renderLine({ line, cls, t }) {
 }
 
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function escAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+function escAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function applyFilter() {
   const box = document.getElementById('logBox');
