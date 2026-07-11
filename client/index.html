@@ -233,6 +233,100 @@
     .mc-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .mc-full { grid-column: 1 / -1; }
 
+    /* ── 프로필 카드 그리드 ── */
+    .profile-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .profile-card {
+      position: relative;
+      border: 2px solid #555;
+      border-bottom-color: #222;
+      border-right-color: #222;
+      background: #1a1a1a;
+      cursor: pointer;
+      overflow: hidden;
+      transition: border-color .1s;
+    }
+    .profile-card:hover { border-color: var(--mc-yellow); }
+    .profile-card:hover .profile-del { opacity: 1; }
+    .profile-thumb {
+      width: 100%;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      position: relative;
+      image-rendering: pixelated;
+    }
+    .profile-ver-badge {
+      position: absolute;
+      top: 3px; right: 3px;
+      background: rgba(0,0,0,.75);
+      color: #fff;
+      font-size: 8px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border: 1px solid #555;
+    }
+    .profile-info {
+      padding: 4px 5px 5px;
+      background: #1a1a1a;
+    }
+    .profile-name {
+      font-size: 10px;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .profile-sub {
+      font-size: 9px;
+      color: var(--mc-gray);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+    .profile-del {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 16px; height: 16px;
+      background: rgba(180,0,0,.85);
+      border: 1px solid #ff5555;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0;
+      transition: opacity .1s;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .profile-del:hover { background: #ff5555; }
+    .profile-add-card {
+      border: 2px dashed #555;
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 90px;
+      cursor: pointer;
+      gap: 4px;
+      transition: border-color .1s, background .1s;
+    }
+    .profile-add-card:hover { border-color: var(--mc-green); background: rgba(85,255,85,.05); }
+    .profile-add-card .plus { font-size: 20px; color: #555; line-height: 1; }
+    .profile-add-card:hover .plus { color: var(--mc-green); }
+    .profile-add-card span { font-size: 9px; color: #555; }
+    .profile-add-card:hover span { color: var(--mc-green); }
+
     /* ── 접속 팀원 ── */
     .team-row {
       display: flex;
@@ -739,11 +833,15 @@
     <!-- 서버 프로필 -->
     <div class="mc-section">
       <div class="mc-section-title">서버 프로필</div>
-      <div class="mc-row" style="gap:6px;">
-        <input id="profileNameInput" class="mc-inp" placeholder="프로필 이름" style="flex:1;font-size:11px;"/>
-        <button class="mc-btn xs t-green" onclick="saveProfile()">저장</button>
+      <div id="profileGrid" class="profile-grid"></div>
+      <!-- 새 프로필 입력 (숨김 → 추가 카드 클릭 시 표시) -->
+      <div id="profileNewRow" style="display:none;margin-top:8px;">
+        <div class="mc-row" style="gap:6px;">
+          <input id="profileNameInput" class="mc-inp" placeholder="프로필 이름 입력" style="flex:1;font-size:11px;" onkeydown="if(event.key==='Enter')saveProfile()"/>
+          <button class="mc-btn xs t-green" onclick="saveProfile()">저장</button>
+          <button class="mc-btn xs" onclick="document.getElementById('profileNewRow').style.display='none'">✕</button>
+        </div>
       </div>
-      <div id="profileList" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;"></div>
     </div>
 
     <!-- playit secret key -->
@@ -1606,26 +1704,51 @@ async function saveConfig() {
 }
 
 // ── 서버 프로필 ──────────────────────────────────────────────────────────────
+const PROFILE_TYPE_META = {
+  paper:    { bg: 'linear-gradient(135deg,#14532d,#166534)', icon: '📄', label: 'Paper' },
+  fabric:   { bg: 'linear-gradient(135deg,#3b0764,#581c87)', icon: '🧵', label: 'Fabric' },
+  arclight: { bg: 'linear-gradient(135deg,#7c2d12,#c2410c)', icon: '⚡', label: 'Arclight' },
+  mohist:   { bg: 'linear-gradient(135deg,#1e3a5f,#1d4ed8)', icon: '🔧', label: 'Mohist' },
+  vanilla:  { bg: 'linear-gradient(135deg,#1a1a2e,#16213e)', icon: '🍦', label: 'Vanilla' },
+};
+
 async function loadProfiles() {
   const profiles = await fetch('/api/profiles').then(r => r.json());
-  const list = document.getElementById('profileList');
+  const grid = document.getElementById('profileGrid');
   const names = Object.keys(profiles);
-  if (!names.length) {
-    list.innerHTML = '<div style="font-size:10px;color:var(--mc-gray);">저장된 프로필 없음</div>';
-    return;
-  }
-  list.innerHTML = names.map(name => {
-    const p = profiles[name];
-    const desc = `${p.serverType || 'paper'} · ${p.paperVersion || ''} · ${p.memory || ''}`;
-    return `<div style="display:flex;align-items:center;gap:4px;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
-        <div style="font-size:10px;color:var(--mc-gray);">${desc}</div>
+
+  const addCard = `<div class="profile-add-card" onclick="openProfileNew()">
+    <div class="plus">+</div>
+    <span>새 프로필</span>
+  </div>`;
+
+  if (!names.length) { grid.innerHTML = addCard; return; }
+
+  grid.innerHTML = names.map(name => {
+    const p    = profiles[name];
+    const meta = PROFILE_TYPE_META[p.serverType] || PROFILE_TYPE_META.paper;
+    const ver  = p.paperVersion || '';
+    const mem  = p.memory || '';
+    const jn   = JSON.stringify(name);
+    return `<div class="profile-card" onclick="loadProfile(${jn})" title="${name} 불러오기">
+      <div class="profile-thumb" style="background:${meta.bg}">
+        <span style="filter:drop-shadow(0 2px 4px #000)">${meta.icon}</span>
+        ${ver ? `<div class="profile-ver-badge">${ver}</div>` : ''}
       </div>
-      <button class="mc-btn xs t-green" onclick="loadProfile(${JSON.stringify(name)})">불러오기</button>
-      <button class="mc-btn xs t-red"   onclick="deleteProfile(${JSON.stringify(name)})">✕</button>
+      <div class="profile-info">
+        <div class="profile-name">${name}</div>
+        <div class="profile-sub">${meta.label} · ${mem}</div>
+      </div>
+      <div class="profile-del" onclick="event.stopPropagation();deleteProfile(${jn})">✕</div>
     </div>`;
-  }).join('');
+  }).join('') + addCard;
+}
+
+function openProfileNew() {
+  const row = document.getElementById('profileNewRow');
+  row.style.display = 'block';
+  document.getElementById('profileNameInput').value = '';
+  document.getElementById('profileNameInput').focus();
 }
 
 async function saveProfile() {
@@ -1638,7 +1761,7 @@ async function saveProfile() {
   });
   if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 프로필 저장 실패: ${e.error}`, 'error'); return; }
   appendLog(`[DevKit] 프로필 저장됨: ${name}`, 'devkit');
-  document.getElementById('profileNameInput').value = '';
+  document.getElementById('profileNewRow').style.display = 'none';
   loadProfiles();
 }
 
