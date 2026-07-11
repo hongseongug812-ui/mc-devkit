@@ -204,6 +204,52 @@ function startServer(port) {
     });
     app.get('/api/config', (_, res) => res.json(CONFIG));
 
+    // ── 서버 프로필 ───────────────────────────────────────────────────────────
+    const PROFILES_FILE = path.join(os.homedir(), '.mc-devkit', 'profiles.json');
+    const loadProfiles  = () => { try { return fs.readJsonSync(PROFILES_FILE); } catch { return {}; } };
+    const saveProfiles  = (p) => { fs.ensureDirSync(path.dirname(PROFILES_FILE)); fs.writeJsonSync(PROFILES_FILE, p, { spaces: 2 }); };
+
+    app.get('/api/profiles', (_, res) => res.json(loadProfiles()));
+
+    app.post('/api/profiles', (req, res) => {
+      const { name } = req.body;
+      if (!name?.trim()) return res.status(400).json({ error: '프로필 이름을 입력하세요.' });
+      const profiles = loadProfiles();
+      profiles[name] = {
+        serverType:   CONFIG.serverType,
+        paperVersion: CONFIG.paperVersion,
+        memory:       CONFIG.memory,
+        serverDir:    CONFIG.serverDir,
+        projectDir:   CONFIG.projectDir,
+        pluginName:   CONFIG.pluginName,
+        buildCmd:     CONFIG.buildCmd,
+      };
+      saveProfiles(profiles);
+      res.json({ ok: true });
+    });
+
+    app.delete('/api/profiles/:name', (req, res) => {
+      const profiles = loadProfiles();
+      delete profiles[decodeURIComponent(req.params.name)];
+      saveProfiles(profiles);
+      res.json({ ok: true });
+    });
+
+    app.post('/api/profiles/:name/load', (req, res) => {
+      const profiles = loadProfiles();
+      const p = profiles[decodeURIComponent(req.params.name)];
+      if (!p) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
+      if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType = p.serverType; }
+      if (p.paperVersion) { CONFIG.paperVersion = p.paperVersion; serverManager.config.version    = p.paperVersion; }
+      if (p.memory)       { CONFIG.memory       = p.memory;       serverManager.config.memory     = p.memory; }
+      if (p.serverDir)    { CONFIG.serverDir    = p.serverDir;    serverManager.config.serverDir  = p.serverDir; }
+      if (p.projectDir)   { CONFIG.projectDir   = p.projectDir;   buildWatcher.config.projectDir  = p.projectDir; }
+      if (p.pluginName)   { CONFIG.pluginName   = p.pluginName;   buildWatcher.config.pluginName  = p.pluginName; }
+      if (p.buildCmd !== undefined) { CONFIG.buildCmd = p.buildCmd; buildWatcher.config.buildCmd  = p.buildCmd || null; }
+      saveConfig();
+      res.json({ ok: true, config: CONFIG });
+    });
+
     app.get('/api/paper-versions', async (_, res) => {
       try {
         const { data } = await axios.get('https://api.purpurmc.org/v2/purpur', { timeout: 8000 });

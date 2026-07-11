@@ -736,6 +736,16 @@
       </div>
     </div>
 
+    <!-- 서버 프로필 -->
+    <div class="mc-section">
+      <div class="mc-section-title">서버 프로필</div>
+      <div class="mc-row" style="gap:6px;">
+        <input id="profileNameInput" class="mc-inp" placeholder="프로필 이름" style="flex:1;font-size:11px;"/>
+        <button class="mc-btn xs t-green" onclick="saveProfile()">저장</button>
+      </div>
+      <div id="profileList" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;"></div>
+    </div>
+
     <!-- playit secret key -->
     <div class="mc-section">
       <div class="mc-section-title">playit.gg 연결</div>
@@ -1595,6 +1605,57 @@ async function saveConfig() {
   appendLog('[DevKit] 설정 저장됨', 'devkit');
 }
 
+// ── 서버 프로필 ──────────────────────────────────────────────────────────────
+async function loadProfiles() {
+  const profiles = await fetch('/api/profiles').then(r => r.json());
+  const list = document.getElementById('profileList');
+  const names = Object.keys(profiles);
+  if (!names.length) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--mc-gray);">저장된 프로필 없음</div>';
+    return;
+  }
+  list.innerHTML = names.map(name => {
+    const p = profiles[name];
+    const desc = `${p.serverType || 'paper'} · ${p.paperVersion || ''} · ${p.memory || ''}`;
+    return `<div style="display:flex;align-items:center;gap:4px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+        <div style="font-size:10px;color:var(--mc-gray);">${desc}</div>
+      </div>
+      <button class="mc-btn xs t-green" onclick="loadProfile(${JSON.stringify(name)})">불러오기</button>
+      <button class="mc-btn xs t-red"   onclick="deleteProfile(${JSON.stringify(name)})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function saveProfile() {
+  const name = document.getElementById('profileNameInput').value.trim();
+  if (!name) { appendLog('[DevKit] 프로필 이름을 입력하세요.', 'error'); return; }
+  await saveConfig();
+  const r = await fetch('/api/profiles', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 프로필 저장 실패: ${e.error}`, 'error'); return; }
+  appendLog(`[DevKit] 프로필 저장됨: ${name}`, 'devkit');
+  document.getElementById('profileNameInput').value = '';
+  loadProfiles();
+}
+
+async function loadProfile(name) {
+  const r = await fetch(`/api/profiles/${encodeURIComponent(name)}/load`, { method: 'POST' });
+  if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 불러오기 실패: ${e.error}`, 'error'); return; }
+  appendLog(`[DevKit] 프로필 불러옴: ${name}`, 'devkit');
+  await loadConfig();
+}
+
+async function deleteProfile(name) {
+  if (!confirm(`"${name}" 프로필을 삭제할까요?`)) return;
+  await fetch(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  appendLog(`[DevKit] 프로필 삭제됨: ${name}`, 'devkit');
+  loadProfiles();
+}
+
 // init 시 서버 권한도 불러와서 OWNER면 매트릭스 반영
 async function loadPermissions() {
   const perms = await fetch('/api/permissions').then(r => r.json());
@@ -1939,6 +2000,7 @@ async function init() {
   }
 
   await loadConfig();
+  loadProfiles();
   await loadPlugins();
   if (document.getElementById('cfgServerType').value === 'fabric') loadMods();
 
