@@ -212,7 +212,7 @@ function startServer(port) {
     app.get('/api/profiles', (_, res) => res.json(loadProfiles()));
 
     app.post('/api/profiles', (req, res) => {
-      const { name } = req.body;
+      const { name, image } = req.body;
       if (!name?.trim()) return res.status(400).json({ error: '프로필 이름을 입력하세요.' });
       const profiles = loadProfiles();
       profiles[name] = {
@@ -223,6 +223,7 @@ function startServer(port) {
         projectDir:   CONFIG.projectDir,
         pluginName:   CONFIG.pluginName,
         buildCmd:     CONFIG.buildCmd,
+        image:        image !== undefined ? image : (profiles[name]?.image || null),
       };
       saveProfiles(profiles);
       res.json({ ok: true });
