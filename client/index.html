@@ -834,6 +834,7 @@
               <option value="paper">Paper (플러그인)</option>
               <option value="fabric">Fabric (모드)</option>
               <option value="arclight">Arclight (모드+플러그인)</option>
+              <option value="cardboard">Cardboard (모드+플러그인)</option>
             </select>
           </div>
           <div class="mc-grid2">
@@ -1714,8 +1715,9 @@ function onServerTypeChange() {
   const type      = document.getElementById('cfgServerType').value;
   const isFabric  = type === 'fabric';
   const isArclight= type === 'arclight';
+  const isCardboard=type === 'cardboard';
   const isPaper   = type === 'paper';
-  const isHybrid  = isArclight;
+  const isHybrid  = isArclight || isCardboard;
 
   document.getElementById('cfgVersionLabel').textContent = 'MC 버전';
 
@@ -1756,10 +1758,11 @@ async function saveConfig() {
 
 // ── 서버 프로필 ──────────────────────────────────────────────────────────────
 const PROFILE_TYPE_META = {
-  paper:    { bg: 'linear-gradient(135deg,#14532d,#166534)', icon: '📄', label: 'Paper' },
-  fabric:   { bg: 'linear-gradient(135deg,#3b0764,#581c87)', icon: '🧵', label: 'Fabric' },
-  arclight: { bg: 'linear-gradient(135deg,#7c2d12,#c2410c)', icon: '⚡', label: 'Arclight' },
-  vanilla:  { bg: 'linear-gradient(135deg,#1a1a2e,#16213e)', icon: '🍦', label: 'Vanilla' },
+  paper:     { bg: 'linear-gradient(135deg,#14532d,#166534)', icon: '📄', label: 'Paper' },
+  fabric:    { bg: 'linear-gradient(135deg,#3b0764,#581c87)', icon: '🧵', label: 'Fabric' },
+  arclight:  { bg: 'linear-gradient(135deg,#7c2d12,#c2410c)', icon: '⚡', label: 'Arclight' },
+  cardboard: { bg: 'linear-gradient(135deg,#78350f,#a16207)', icon: '📦', label: 'Cardboard' },
+  vanilla:   { bg: 'linear-gradient(135deg,#1a1a2e,#16213e)', icon: '🍦', label: 'Vanilla' },
 };
 
 async function loadProfiles() {
@@ -1839,9 +1842,10 @@ async function loadPermissions() {
 async function loadVersionList(selectedVersion) {
   const sel  = document.getElementById('cfgVersion');
   const type = document.getElementById('cfgServerType').value;
-  const endpoint = type === 'fabric'   ? '/api/fabric-versions'
-                 : type === 'arclight' ? '/api/arclight-versions'
-                 :                       '/api/paper-versions';
+  const endpoint = type === 'fabric'    ? '/api/fabric-versions'
+                 : type === 'arclight'  ? '/api/arclight-versions'
+                 : type === 'cardboard' ? '/api/cardboard-versions'
+                 :                        '/api/paper-versions';
   sel.innerHTML    = '<option>로딩 중...</option>';
   try {
     const versions = await fetch(endpoint).then(r => r.json());

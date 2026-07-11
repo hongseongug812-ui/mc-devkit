@@ -290,6 +290,24 @@ function startServer(port) {
       } catch { res.json([]); }
     });
 
+    app.get('/api/cardboard-versions', async (_, res) => {
+      try {
+        const { data } = await axios.get('https://api.modrinth.com/v2/project/cardboard', {
+          headers: { 'User-Agent': 'mc-devkit' }, timeout: 8000,
+        });
+        const versions = (data.game_versions || []).filter(v => /^\d+\.\d+(\.\d+)?$/.test(v));
+        versions.sort((a, b) => {
+          const av = a.split('.').map(Number), bv = b.split('.').map(Number);
+          for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+            const d = (bv[i] || 0) - (av[i] || 0);
+            if (d !== 0) return d;
+          }
+          return 0;
+        });
+        res.json(versions);
+      } catch { res.json([]); }
+    });
+
     // ── 권한 API ──────────────────────────────────────────────────────────
     app.get('/api/permissions', (_, res) => res.json(teamManager.getPermissions()));
     app.post('/api/permissions', (req, res) => { teamManager.setPermissions(req.body); res.json({ ok: true }); });

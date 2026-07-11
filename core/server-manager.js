@@ -239,6 +239,60 @@ class ServerManager {
     this.onLog('[DevKit] Fabric 설치 완료 ✓');
   }
 
+  // ── Cardboard 모드 확보 (Fabric + Bukkit 하이브리드) ─────────────────────────
+  async _ensureCardboard() {
+    const modsDir  = path.join(this._dir, 'mods');
+    await fs.ensureDir(modsDir);
+
+    const verFile  = path.join(modsDir, '.cardboard-version');
+    const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
+
+    if (savedVer === this.config.version) return;
+
+    if (savedVer) {
+      const old = await fs.readdir(modsDir);
+      for (const f of old) {
+        if (/^(cardboard|icommon|fabric-api)-/i.test(f)) await fs.remove(path.join(modsDir, f));
+      }
+    }
+
+    const CARDBOARD_MODS = [
+      { id: 'fabric-api', name: 'Fabric API' },
+      { id: 'icommon',    name: 'iCommonLib' },
+      { id: 'cardboard',  name: 'Cardboard'  },
+    ];
+
+    for (const mod of CARDBOARD_MODS) {
+      this.onLog(`[DevKit] ${mod.name} 다운로드 중...`);
+      const { data: versions } = await axios.get(
+        `https://api.modrinth.com/v2/project/${mod.id}/version`,
+        {
+          params: {
+            loaders:       JSON.stringify(['fabric']),
+            game_versions: JSON.stringify([this.config.version]),
+          },
+          headers: { 'User-Agent': 'mc-devkit/1.0' },
+          timeout: 10000,
+        }
+      );
+      if (!versions?.length) {
+        throw new Error(`${mod.name}: MC ${this.config.version} 호환 버전이 없습니다. 다른 버전을 선택해주세요.`);
+      }
+
+      const file = versions[0].files.find(f => f.primary) || versions[0].files[0];
+      if (!file) throw new Error(`${mod.name}: 다운로드 파일을 찾을 수 없습니다.`);
+
+      const resp = await axios.get(file.url, {
+        responseType: 'arraybuffer', maxRedirects: 10, timeout: 30000,
+        headers: { 'User-Agent': 'mc-devkit/1.0' },
+      });
+      await fs.writeFile(path.join(modsDir, file.filename), resp.data);
+      this.onLog(`[DevKit] ${mod.name} 설치 완료 ✓ (${file.filename})`);
+    }
+
+    await fs.writeFile(verFile, this.config.version);
+  }
+
   // ── Arclight 서버 jar 확보 (Forge/NeoForge + Bukkit 하이브리드) ──────────────
   async _ensureArclight() {
     const jarPath = path.join(this._dir, 'arclight.jar');
@@ -523,6 +577,13 @@ class ServerManager {
         await this._ensurePlugManX();
         jarArgs = ['arclight.jar', '--nogui'];
         this.onLog('[DevKit] Arclight 서버 시작 중... (모드+플러그인 하이브리드)');
+      } else if (this.config.serverType === 'cardboard') {
+        await this._ensureFabric();
+        await this._ensureCardboard();
+        await this._ensureFabricPerfMods();
+        await this._ensurePlugManX();
+        jarArgs = ['fabric-server-launch.jar', 'nogui'];
+        this.onLog('[DevKit] Cardboard 서버 시작 중... (모드+플러그인 하이브리드)');
       } else {
         await this._ensurePaper();
         await this._ensurePlugManX();
