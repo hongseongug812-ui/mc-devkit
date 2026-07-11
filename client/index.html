@@ -200,12 +200,51 @@
       box-shadow: 3px 0 0 #2f4a1d;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── 탭 내비게이션 ── */
+    .tab-nav {
+      display: flex;
+      flex-shrink: 0;
+      border-bottom: 2px solid #000;
+      background: rgba(0,0,0,.35);
+    }
+    .tab-btn {
+      flex: 1;
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 9px 2px 8px;
+      cursor: pointer;
+      border: none;
+      border-top: 3px solid transparent;
+      background: transparent;
+      color: var(--mc-gray);
+      text-shadow: 1px 1px 0 rgba(0,0,0,.8);
+      transition: color .1s, background .1s;
+      user-select: none;
+    }
+    .tab-btn:hover:not(.active) {
+      color: var(--mc-white);
+      background: rgba(255,255,255,.05);
+    }
+    .tab-btn.active {
+      color: var(--mc-yellow);
+      text-shadow: 1px 1px 0 #3d3500;
+      border-top-color: var(--mc-yellow);
+      background: rgba(0,0,0,.2);
+    }
+    .tab-panel {
+      flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
     }
-    .sidebar::-webkit-scrollbar { width: 8px; }
-    .sidebar::-webkit-scrollbar-track { background: var(--mc-bg2); }
-    .sidebar::-webkit-scrollbar-thumb { background: #6a6a6a; border: 1px solid #000; }
+    .tab-panel::-webkit-scrollbar { width: 6px; }
+    .tab-panel::-webkit-scrollbar-track { background: var(--mc-bg2); }
+    .tab-panel::-webkit-scrollbar-thumb { background: #555; }
 
     .mc-section {
       padding: 14px 12px;
@@ -693,177 +732,254 @@
   <!-- ── 사이드바 ── -->
   <div class="sidebar">
 
-    <!-- 서버 컨트롤 -->
-    <div class="mc-section">
-      <div class="mc-section-title">서버</div>
-      <div class="mc-grid2" style="gap:6px;">
-        <button id="btnStart"   class="mc-btn t-green sm" onclick="action('start')">시작</button>
-        <button id="btnStop"    class="mc-btn t-red   sm" onclick="action('stop')">중지</button>
-        <button id="btnRestart" class="mc-btn t-yellow sm" onclick="action('restart')">재시작</button>
-        <button id="btnBackup"  class="mc-btn sm" onclick="doBackup()" title="월드 백업 (zip)">백업</button>
+    <!-- 탭 내비게이션 -->
+    <div class="tab-nav">
+      <button class="tab-btn active" onclick="switchTab(this,'tab-server')">🖥️ 서버</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-files')">📦 파일</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-settings')">⚙️ 설정</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-team')">👥 팀</button>
+    </div>
+
+    <!-- ─ 탭 1: 서버 ─ -->
+    <div id="tab-server" class="tab-panel">
+
+      <div class="mc-section">
+        <div class="mc-section-title">서버 제어</div>
+        <div class="mc-grid2" style="gap:6px;">
+          <button id="btnStart"   class="mc-btn t-green sm" onclick="action('start')">▶ 시작</button>
+          <button id="btnStop"    class="mc-btn t-red   sm" onclick="action('stop')">■ 중지</button>
+          <button id="btnRestart" class="mc-btn t-yellow sm" onclick="action('restart')">↺ 재시작</button>
+          <button id="btnBackup"  class="mc-btn sm" onclick="doBackup()">💾 백업</button>
+        </div>
       </div>
-      <div class="mc-row" style="gap:6px;margin-top:6px;">
-        <button class="mc-btn xs t-red" onclick="deleteWorld()" style="flex:1;">월드 삭제</button>
-        <button class="mc-btn xs t-green" onclick="newWorld()" style="flex:1;">새 월드</button>
-        <label class="mc-btn xs" style="flex:1;text-align:center;cursor:pointer;margin:0;">
-          맵 업로드
+
+      <div class="mc-section">
+        <div class="mc-section-title">월드 관리</div>
+        <div class="mc-grid2" style="gap:6px;margin-bottom:6px;">
+          <button class="mc-btn xs t-red"   onclick="deleteWorld()">월드 삭제</button>
+          <button class="mc-btn xs t-green" onclick="newWorld()">새 월드</button>
+        </div>
+        <label class="mc-btn xs" style="text-align:center;cursor:pointer;margin:0;">
+          📁 맵 업로드 (.zip)
           <input type="file" accept=".zip" style="display:none" onchange="uploadWorld(this)"/>
         </label>
       </div>
-    </div>
 
-    <!-- 플러그인 -->
-    <div class="mc-section">
-      <div class="mc-section-title">플러그인</div>
-      <div class="mc-col">
-        <button id="btnBuild"  class="mc-btn t-aqua sm" onclick="action('build')">빌드 + 리로드</button>
-        <button id="btnReload" class="mc-btn sm"        onclick="action('reload')">플러그인 리로드</button>
-      </div>
-    </div>
-
-    <!-- 플러그인 파일 관리 (Paper) -->
-    <div class="mc-section plugin-only">
-      <div class="mc-section-title">플러그인 파일</div>
-      <div class="drop-zone" id="dropZone" onclick="document.getElementById('jarInput').click()"
-           ondragover="event.preventDefault();this.classList.add('drag-over')"
-           ondragleave="this.classList.remove('drag-over')"
-           ondrop="onJarDrop(event)">
-        <input type="file" id="jarInput" accept=".jar" multiple onchange="onJarSelect(this)">
-        ▲ .jar 파일을 여기에 드롭하거나 클릭
-      </div>
-      <div id="pluginList"></div>
-    </div>
-
-    <!-- 모드 파일 관리 (Fabric) -->
-    <div class="mc-section fabric-only" style="display:none">
-      <div class="mc-section-title">모드 파일</div>
-      <div class="drop-zone" id="modDropZone" onclick="document.getElementById('modInput').click()"
-           ondragover="event.preventDefault();this.classList.add('drag-over')"
-           ondragleave="this.classList.remove('drag-over')"
-           ondrop="onModDrop(event)">
-        <input type="file" id="modInput" accept=".jar" multiple onchange="onModSelect(this)">
-        ▲ 모드 .jar 파일을 여기에 드롭하거나 클릭
-      </div>
-      <div id="modList"></div>
-    </div>
-
-    <!-- 명령어 -->
-    <div class="mc-section">
-      <div class="mc-section-title">명령어
-        <span id="cmdModeLabel" style="color:var(--mc-gray);font-size:9px;font-weight:400;margin-left:6px;">RCON</span>
-      </div>
-      <div class="mc-row" style="margin-bottom:6px;">
-        <div class="cmd-wrap">
-          <div id="cmdSuggest" style="display:none;"></div>
-          <input id="cmdInput" type="text" class="mc-inp" placeholder="/say Hello"
-            oninput="onCmdInput()"
-            onkeydown="onCmdKey(event)"
-            onblur="setTimeout(()=>hideSuggest(),150)"/>
+      <div class="mc-section">
+        <div class="mc-section-title">명령어
+          <span id="cmdModeLabel" style="color:var(--mc-gray);font-size:9px;font-weight:400;margin-left:6px;">RCON</span>
         </div>
-        <button class="mc-btn xs" onclick="sendCmd()" style="width:auto;flex-shrink:0;padding:8px 12px;">전송</button>
-      </div>
-      <button id="btnStdinToggle" class="mc-btn xs" onclick="toggleStdinMode()"
-        style="font-size:9px;padding:5px 8px;">stdin 모드 전환</button>
-    </div>
-
-    <!-- 설정 -->
-    <div class="mc-section">
-      <div class="mc-section-title">설정</div>
-      <div class="mc-col">
-        <div class="plugin-only">
-          <label class="mc-label">플러그인 이름</label>
-          <input id="cfgPlugin" type="text" class="mc-inp"/>
-        </div>
-        <div>
-          <label class="mc-label">프로젝트 폴더</label>
-          <div class="mc-row">
-            <input id="cfgProject" type="text" class="mc-inp" readonly placeholder="폴더 선택..."/>
-            <button class="mc-btn xs" onclick="pickDir('cfgProject')" style="width:auto;flex-shrink:0;">찾기</button>
+        <div class="mc-row" style="margin-bottom:6px;">
+          <div class="cmd-wrap">
+            <div id="cmdSuggest" style="display:none;"></div>
+            <input id="cmdInput" type="text" class="mc-inp" placeholder="/say Hello"
+              oninput="onCmdInput()"
+              onkeydown="onCmdKey(event)"
+              onblur="setTimeout(()=>hideSuggest(),150)"/>
           </div>
+          <button class="mc-btn xs" onclick="sendCmd()" style="width:auto;flex-shrink:0;padding:8px 12px;">전송</button>
         </div>
-        <div>
-          <label class="mc-label">서버 폴더</label>
-          <div class="mc-row">
-            <input id="cfgServer" type="text" class="mc-inp" readonly placeholder="폴더 선택..."/>
-            <button class="mc-btn xs" onclick="pickDir('cfgServer')" style="width:auto;flex-shrink:0;">찾기</button>
-          </div>
+        <button id="btnStdinToggle" class="mc-btn xs" onclick="toggleStdinMode()"
+          style="font-size:9px;padding:5px 8px;">stdin 모드</button>
+      </div>
+
+    </div>
+
+    <!-- ─ 탭 2: 파일 ─ -->
+    <div id="tab-files" class="tab-panel" style="display:none">
+
+      <div class="mc-section plugin-only">
+        <div class="mc-section-title">플러그인</div>
+        <div class="mc-col">
+          <button id="btnBuild"  class="mc-btn t-aqua sm" onclick="action('build')">빌드 + 리로드</button>
+          <button id="btnReload" class="mc-btn sm"        onclick="action('reload')">플러그인 리로드</button>
         </div>
-        <div>
-          <label class="mc-label">서버 종류</label>
-          <select id="cfgServerType" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;" onchange="onServerTypeChange()">
-            <option value="paper">Paper (플러그인)</option>
-            <option value="fabric">Fabric (모드)</option>
-            <option value="arclight">Arclight (모드+플러그인)</option>
-          </select>
+      </div>
+
+      <div class="mc-section plugin-only">
+        <div class="mc-section-title">플러그인 파일</div>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('jarInput').click()"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="onJarDrop(event)">
+          <input type="file" id="jarInput" accept=".jar" multiple onchange="onJarSelect(this)">
+          ▲ .jar 파일을 여기에 드롭하거나 클릭
         </div>
-        <div class="mc-grid2">
+        <div id="pluginList"></div>
+      </div>
+
+      <div class="mc-section fabric-only" style="display:none">
+        <div class="mc-section-title">모드 파일</div>
+        <div class="drop-zone" id="modDropZone" onclick="document.getElementById('modInput').click()"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="onModDrop(event)">
+          <input type="file" id="modInput" accept=".jar" multiple onchange="onModSelect(this)">
+          ▲ 모드 .jar 파일을 여기에 드롭하거나 클릭
+        </div>
+        <div id="modList"></div>
+      </div>
+
+    </div>
+
+    <!-- ─ 탭 3: 설정 ─ -->
+    <div id="tab-settings" class="tab-panel" style="display:none">
+
+      <div class="mc-section">
+        <div class="mc-section-title">서버 설정</div>
+        <div class="mc-col">
           <div>
-            <label class="mc-label" id="cfgVersionLabel">MC 버전</label>
-            <select id="cfgVersion" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
-              <option>로딩 중...</option>
+            <label class="mc-label">서버 종류</label>
+            <select id="cfgServerType" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;" onchange="onServerTypeChange()">
+              <option value="paper">Paper (플러그인)</option>
+              <option value="fabric">Fabric (모드)</option>
+              <option value="arclight">Arclight (모드+플러그인)</option>
+            </select>
+          </div>
+          <div class="mc-grid2">
+            <div>
+              <label class="mc-label" id="cfgVersionLabel">MC 버전</label>
+              <select id="cfgVersion" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
+                <option>로딩 중...</option>
+              </select>
+            </div>
+            <div>
+              <label class="mc-label">메모리</label>
+              <select id="cfgMemory" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
+                <option>1G</option><option selected>2G</option><option>4G</option>
+                <option>6G</option><option>8G</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="mc-label">렌더 거리 (청크)</label>
+            <select id="cfgViewDistance" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
+              <option value="4">4</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+              <option value="10" selected>10 (기본)</option>
+              <option value="12">12</option>
+              <option value="16">16</option>
+              <option value="20">20</option>
+              <option value="32">32</option>
             </select>
           </div>
           <div>
-            <label class="mc-label">메모리</label>
-            <select id="cfgMemory" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
-              <option>1G</option><option selected>2G</option><option>4G</option>
-              <option>6G</option><option>8G</option>
-            </select>
+            <label class="mc-label">서버 폴더</label>
+            <div class="mc-row">
+              <input id="cfgServer" type="text" class="mc-inp" readonly placeholder="폴더 선택..."/>
+              <button class="mc-btn xs" onclick="pickDir('cfgServer')" style="width:auto;flex-shrink:0;">찾기</button>
+            </div>
+          </div>
+          <div class="plugin-only">
+            <label class="mc-label">플러그인 이름</label>
+            <input id="cfgPlugin" type="text" class="mc-inp"/>
+          </div>
+          <div class="plugin-only">
+            <label class="mc-label">프로젝트 폴더</label>
+            <div class="mc-row">
+              <input id="cfgProject" type="text" class="mc-inp" readonly placeholder="폴더 선택..."/>
+              <button class="mc-btn xs" onclick="pickDir('cfgProject')" style="width:auto;flex-shrink:0;">찾기</button>
+            </div>
+          </div>
+          <button class="mc-btn sm" onclick="saveConfig()">설정 저장</button>
+          <button class="mc-btn sm" onclick="openSrvPropModal()" style="margin-top:4px;">서버 세부 설정 ▶</button>
+        </div>
+      </div>
+
+      <div class="mc-section">
+        <div class="mc-section-title">서버 프로필</div>
+        <div id="profileGrid" class="profile-grid"></div>
+        <div id="profileNewRow" style="display:none;margin-top:8px;">
+          <div class="mc-row" style="gap:6px;">
+            <input id="profileNameInput" class="mc-inp" placeholder="프로필 이름 입력" style="flex:1;font-size:11px;" onkeydown="if(event.key==='Enter')saveProfile()"/>
+            <button class="mc-btn xs t-green" onclick="saveProfile()">저장</button>
+            <button class="mc-btn xs" onclick="document.getElementById('profileNewRow').style.display='none'">✕</button>
           </div>
         </div>
-        <div>
-          <label class="mc-label">렌더 거리 (청크)</label>
-          <select id="cfgViewDistance" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
-            <option value="4">4</option>
-            <option value="6">6</option>
-            <option value="8">8</option>
-            <option value="10" selected>10 (기본)</option>
-            <option value="12">12</option>
-            <option value="16">16</option>
-            <option value="20">20</option>
-            <option value="32">32</option>
-          </select>
-        </div>
-        <button class="mc-btn sm" onclick="saveConfig()">설정 저장</button>
-        <button class="mc-btn sm" onclick="openSrvPropModal()" style="margin-top:4px;">서버 세부 설정 ▶</button>
       </div>
+
     </div>
 
-    <!-- 서버 프로필 -->
-    <div class="mc-section">
-      <div class="mc-section-title">서버 프로필</div>
-      <div id="profileGrid" class="profile-grid"></div>
-      <!-- 새 프로필 입력 (숨김 → 추가 카드 클릭 시 표시) -->
-      <div id="profileNewRow" style="display:none;margin-top:8px;">
+    <!-- ─ 탭 4: 팀 ─ -->
+    <div id="tab-team" class="tab-panel" style="display:none">
+
+      <div class="mc-section">
+        <div class="mc-section-title">서버 접속 주소</div>
+        <div class="mc-addr-chip empty" id="mcAddrChip">주소 없음</div>
+        <div class="mc-row" style="margin-bottom:6px;">
+          <button class="mc-btn xs" onclick="copyMcAddr()">복사</button>
+          <button class="mc-btn xs t-green" id="ngrokBtn" onclick="toggleNgrok()" style="flex:1;">▶ playit 터널 시작</button>
+        </div>
+        <div id="mcAddrEdit" style="display:none">
+          <div class="mc-col">
+            <div>
+              <label class="mc-label">직접 입력</label>
+              <input id="mcAddrInput" type="text" class="mc-inp" placeholder="예) xxx.joinmc.link:25565"/>
+            </div>
+            <button class="mc-btn sm" onclick="saveMcAddr()">공유하기</button>
+          </div>
+        </div>
+        <button class="mc-btn xs" id="mcAddrEditBtn" onclick="toggleMcAddrEdit()" style="margin-top:4px;">직접 입력</button>
+      </div>
+
+      <div class="mc-section">
+        <div class="mc-section-title">playit.gg 설정</div>
+        <div style="font-size:10px;color:var(--mc-gray);margin-bottom:6px;line-height:1.5;">
+          playit.gg → Agents → Create Agent → Secret Key 복사
+        </div>
         <div class="mc-row" style="gap:6px;">
-          <input id="profileNameInput" class="mc-inp" placeholder="프로필 이름 입력" style="flex:1;font-size:11px;" onkeydown="if(event.key==='Enter')saveProfile()"/>
-          <button class="mc-btn xs t-green" onclick="saveProfile()">저장</button>
-          <button class="mc-btn xs" onclick="document.getElementById('profileNewRow').style.display='none'">✕</button>
+          <input id="playitSecretInput" type="password" class="mc-inp" placeholder="secret key 입력" style="flex:1;"/>
+          <button class="mc-btn xs t-green" onclick="savePlayitSecret()">저장</button>
+        </div>
+        <div id="playitStatus" style="font-size:10px;color:var(--mc-gray);margin-top:4px;"></div>
+      </div>
+
+      <div class="mc-section">
+        <div class="mc-section-title">DevKit 공유 주소</div>
+        <div id="inviteUrl" class="invite-placeholder" onclick="copyUrl()" title="클릭하여 복사" style="cursor:pointer;">터널 시작 후 주소 표시</div>
+        <div class="mc-row" style="gap:6px;margin-top:6px;">
+          <button class="mc-btn sm t-green" onclick="copyUrl()" style="flex:1;">주소 복사</button>
+        </div>
+        <div id="copyToast" style="font-size:10px;color:var(--mc-green);margin-top:3px;display:none;">복사됨!</div>
+      </div>
+
+      <div class="mc-section">
+        <div class="mc-section-title">팀원 관리</div>
+        <div id="teamList"><div style="color:#6a6a6a;font-size:11px;padding:4px 0;">접속한 팀원 없음</div></div>
+      </div>
+
+      <div class="mc-section">
+        <div class="mc-section-title">플레이어<span id="playerCount"></span></div>
+        <div id="playerList" class="player-list"></div>
+      </div>
+
+      <div class="mc-section" id="permSection" style="display:none">
+        <div class="mc-section-title">권한 설정</div>
+        <table class="perm-table" id="permMatrix">
+          <thead>
+            <tr>
+              <th>액션</th>
+              <th>ADMIN</th>
+              <th>MBR</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <button class="mc-btn sm" onclick="savePermissions()">권한 저장</button>
+      </div>
+
+      <div class="mc-section plugin-only" id="buildCmdSection" style="display:none">
+        <div class="mc-section-title">빌드 명령어</div>
+        <div class="mc-col">
+          <div>
+            <label class="mc-label">커스텀 빌드 명령</label>
+            <input id="cfgBuildCmd" type="text" class="mc-inp" placeholder="기본: gradlew.bat build -x test"/>
+          </div>
+          <button class="mc-btn sm" onclick="saveBuildCmd()">저장</button>
         </div>
       </div>
-    </div>
 
-    <!-- playit secret key -->
-    <div class="mc-section">
-      <div class="mc-section-title">playit.gg 연결</div>
-      <div style="font-size:10px;color:var(--mc-gray);margin-bottom:6px;line-height:1.5;">
-        playit.gg → Agents → Create Agent → Secret Key 복사
-      </div>
-      <div class="mc-row" style="gap:6px;">
-        <input id="playitSecretInput" type="password" class="mc-inp" placeholder="secret key 입력" style="flex:1;"/>
-        <button class="mc-btn xs t-green" onclick="savePlayitSecret()">저장</button>
-      </div>
-      <div id="playitStatus" style="font-size:10px;color:var(--mc-gray);margin-top:4px;"></div>
-    </div>
-
-    <!-- 서버 접속 주소 -->
-    <div class="mc-section">
-      <div class="mc-section-title">서버 접속 주소</div>
-      <div id="inviteUrl" class="invite-placeholder" onclick="copyUrl()" title="클릭하여 복사" style="cursor:pointer;">터널 시작 후 주소 표시</div>
-      <div class="mc-row" style="gap:6px;margin-top:6px;">
-        <button class="mc-btn sm t-green" onclick="copyUrl()" style="flex:1;">주소 복사</button>
-      </div>
-      <div id="copyToast" style="font-size:10px;color:var(--mc-green);margin-top:3px;display:none;">복사됨!</div>
     </div>
 
   </div>
@@ -883,76 +999,6 @@
       </div>
     </div>
     <div id="logBox"></div>
-  </div>
-
-  <!-- ── 오른쪽 사이드바 ── -->
-  <div class="right-sidebar">
-
-    <!-- MC 서버 접속 주소 + bore 통합 -->
-    <div class="mc-section">
-      <div class="mc-section-title">서버 접속 주소</div>
-
-      <!-- 주소 표시 -->
-      <div class="mc-addr-chip empty" id="mcAddrChip">주소 없음</div>
-      <div class="mc-row" style="margin-bottom:8px;">
-        <button class="mc-btn xs" onclick="copyMcAddr()">복사</button>
-        <button class="mc-btn xs t-green" id="ngrokBtn" onclick="toggleNgrok()" style="flex:1;">▶ playit 터널 시작</button>
-      </div>
-
-      <!-- 수동 주소 입력 -->
-      <div id="mcAddrEdit" style="display:none">
-        <div class="mc-col">
-          <div>
-            <label class="mc-label">직접 입력</label>
-            <input id="mcAddrInput" type="text" class="mc-inp" placeholder="예) xxx.joinmc.link:25565"/>
-          </div>
-          <button class="mc-btn sm" onclick="saveMcAddr()">공유하기</button>
-        </div>
-      </div>
-      <button class="mc-btn xs" id="mcAddrEditBtn" onclick="toggleMcAddrEdit()" style="margin-top:4px;">직접 입력</button>
-    </div>
-
-    <!-- 팀원 관리 -->
-    <div class="mc-section">
-      <div class="mc-section-title">팀원 관리</div>
-      <div id="teamList"><div style="color:#6a6a6a;font-size:11px;padding:4px 0;">접속한 팀원 없음</div></div>
-    </div>
-
-    <!-- 접속 중인 플레이어 -->
-    <div class="mc-section">
-      <div class="mc-section-title">플레이어<span id="playerCount"></span></div>
-      <div id="playerList" class="player-list"></div>
-    </div>
-
-    <!-- 권한 설정 (OWNER만 표시) -->
-    <div class="mc-section" id="permSection" style="display:none">
-      <div class="mc-section-title">권한 설정</div>
-      <table class="perm-table" id="permMatrix">
-        <thead>
-          <tr>
-            <th>액션</th>
-            <th>ADMIN</th>
-            <th>MBR</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <button class="mc-btn sm" onclick="savePermissions()">권한 저장</button>
-    </div>
-
-
-    <!-- 빌드 명령어 (OWNER만 표시) -->
-    <div class="mc-section plugin-only" id="buildCmdSection" style="display:none">
-      <div class="mc-section-title">빌드 명령어</div>
-      <div class="mc-col">
-        <div>
-          <label class="mc-label">커스텀 빌드 명령</label>
-          <input id="cfgBuildCmd" type="text" class="mc-inp" placeholder="기본: gradlew.bat build -x test"/>
-        </div>
-        <button class="mc-btn sm" onclick="saveBuildCmd()">저장</button>
-      </div>
-    </div>
-
   </div>
 
 </div>
@@ -1626,6 +1672,13 @@ async function uploadWorld(input) {
   } catch (e) {
     appendLog(`[DevKit] 업로드 오류: ${e.message}`, 'error');
   }
+}
+
+function switchTab(btn, panelId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  btn.classList.add('active');
+  document.getElementById(panelId).style.display = '';
 }
 
 async function startTunnel() { await fetch('/api/tunnel/start', { method:'POST' }); }
