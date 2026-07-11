@@ -31,6 +31,14 @@ class ServerManager {
     return path.join(this.config.serverDir, this.config.serverType || 'paper');
   }
 
+  // Adoptium 압축 해제 후 java 실행 파일 경로
+  // macOS 배포판은 .app 번들 구조(Contents/Home/bin/java)로 풀림, Win/Linux는 바로 bin/에 풀림
+  get _jreJavaExe() {
+    return process.platform === 'darwin'
+      ? path.join(JRE_DIR, 'Contents', 'Home', 'bin', 'java')
+      : path.join(JRE_DIR, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+  }
+
   // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────
   async _ensureJava() {
     if (this._javaPath) return this._javaPath;
@@ -69,7 +77,7 @@ class ServerManager {
     } catch {}
 
     // 2. 이전에 내려받은 JRE 재사용
-    const javaExe = path.join(JRE_DIR, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+    const javaExe = this._jreJavaExe;
     if (await fs.pathExists(javaExe)) {
       this.onLog('[DevKit] 설치된 JRE 21 사용');
       this._javaPath = javaExe;
