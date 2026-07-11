@@ -11,7 +11,6 @@ const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
 const MOJANG_META  = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
-const MOHIST_API        = 'https://mohistmc.com/api/v2/projects/mohist';
 const ARCLIGHT_RELEASES = 'https://api.github.com/repos/IzzelAliz/Arclight/releases';
 const JRE_DIR      = path.join(os.homedir(), '.mc-devkit', 'jre');
 
@@ -48,8 +47,8 @@ class ServerManager {
     }
 
     // 1. 시스템 Java 확인
-    // Arclight/Mohist(Forge 기반)은 Java 21까지만 안정 지원 → 초과 시 내부 JRE 21로 대체
-    const forgeType = ['arclight', 'mohist'].includes(this.config.serverType);
+    // Arclight(Forge 기반)은 Java 21까지만 안정 지원 → 초과 시 내부 JRE 21로 대체
+    const forgeType = this.config.serverType === 'arclight';
     try {
       const out   = execSync('java -version 2>&1', { encoding: 'utf8' });
       const ver   = out.split('\n')[0];
@@ -60,7 +59,7 @@ class ServerManager {
         if (major < 17) {
           this.onLog(`[DevKit] Java ${major} 감지 — Java 17 미만은 지원하지 않습니다. 내부 JRE 21로 대체합니다.`);
         } else if (forgeType && major > 21) {
-          this.onLog(`[DevKit] Java ${major} 감지 — Arclight/Mohist는 Java 21까지 지원합니다. 내부 JRE 21로 대체합니다.`);
+          this.onLog(`[DevKit] Java ${major} 감지 — Arclight는 Java 21까지 지원합니다. 내부 JRE 21로 대체합니다.`);
         } else {
           this.onLog(`[DevKit] 시스템 Java ${major} 사용`);
           this._javaPath = 'java';
@@ -238,43 +237,6 @@ class ServerManager {
     });
     await fs.writeFile(verFile, this.config.version);
     this.onLog('[DevKit] Fabric 설치 완료 ✓');
-  }
-
-  // ── Mohist 서버 jar 확보 (Forge + Bukkit 하이브리드) ─────────────────────────
-  async _ensureMohist() {
-    const jarPath = path.join(this._dir, 'mohist.jar');
-    const verFile = path.join(this._dir, '.mohist-version');
-    const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
-
-    if (savedVer !== this.config.version && await fs.pathExists(jarPath)) {
-      this.onLog(`[DevKit] Mohist 버전 변경 (${savedVer} → ${this.config.version}), 재다운로드 중...`);
-      await fs.remove(jarPath);
-    }
-
-    if (await fs.pathExists(jarPath)) return;
-
-    this.onLog(`[DevKit] Mohist ${this.config.version} 다운로드 중...`);
-    await fs.ensureDir(this._dir);
-
-    const { data } = await axios.get(
-      `${MOHIST_API}/${this.config.version}/builds`,
-      { headers: { 'User-Agent': 'mc-devkit' }, timeout: 15000 }
-    );
-    const builds = data.builds ?? [];
-    if (!builds.length) throw new Error(`Mohist ${this.config.version} 빌드가 아직 없습니다. Mohist 공식 사이트에서 지원 버전을 확인하거나 1.20.1 등 다른 버전을 사용해주세요.`);
-
-    const latest = builds.at(-1);
-    const url = latest.url;
-    if (!url) throw new Error('Mohist 다운로드 URL을 찾을 수 없습니다.');
-
-    const resp = await axios.get(url, {
-      responseType: 'arraybuffer', maxRedirects: 10,
-      headers: { 'User-Agent': 'mc-devkit' }, timeout: 180000,
-    });
-    await fs.writeFile(jarPath, resp.data);
-    await fs.writeFile(verFile, this.config.version);
-    this.onLog('[DevKit] Mohist 다운로드 완료 ✓');
-    this.onLog('[DevKit] ⚠ 최초 실행 시 Forge 설치로 수 분 소요될 수 있습니다.');
   }
 
   // ── Arclight 서버 jar 확보 (Forge/NeoForge + Bukkit 하이브리드) ──────────────
@@ -556,11 +518,6 @@ class ServerManager {
         await this._ensureVanilla();
         jarArgs = ['server.jar', '--nogui'];
         this.onLog('[DevKit] Vanilla 서버 시작 중...');
-      } else if (this.config.serverType === 'mohist') {
-        await this._ensureMohist();
-        await this._ensurePlugManX();
-        jarArgs = ['mohist.jar', 'nogui'];
-        this.onLog('[DevKit] Mohist 서버 시작 중... (모드+플러그인 하이브리드)');
       } else if (this.config.serverType === 'arclight') {
         await this._ensureArclight();
         await this._ensurePlugManX();

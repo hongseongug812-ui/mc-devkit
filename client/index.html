@@ -793,7 +793,6 @@
           <select id="cfgServerType" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;" onchange="onServerTypeChange()">
             <option value="paper">Paper (플러그인)</option>
             <option value="fabric">Fabric (모드)</option>
-            <option value="mohist">Mohist (모드+플러그인)</option>
             <option value="arclight">Arclight (모드+플러그인)</option>
           </select>
         </div>
@@ -1661,10 +1660,9 @@ async function pickDir(id) {
 function onServerTypeChange() {
   const type      = document.getElementById('cfgServerType').value;
   const isFabric  = type === 'fabric';
-  const isMohist  = type === 'mohist';
   const isArclight= type === 'arclight';
   const isPaper   = type === 'paper';
-  const isHybrid  = isMohist || isArclight;
+  const isHybrid  = isArclight;
 
   document.getElementById('cfgVersionLabel').textContent = 'MC 버전';
 
@@ -1708,7 +1706,6 @@ const PROFILE_TYPE_META = {
   paper:    { bg: 'linear-gradient(135deg,#14532d,#166534)', icon: '📄', label: 'Paper' },
   fabric:   { bg: 'linear-gradient(135deg,#3b0764,#581c87)', icon: '🧵', label: 'Fabric' },
   arclight: { bg: 'linear-gradient(135deg,#7c2d12,#c2410c)', icon: '⚡', label: 'Arclight' },
-  mohist:   { bg: 'linear-gradient(135deg,#1e3a5f,#1d4ed8)', icon: '🔧', label: 'Mohist' },
   vanilla:  { bg: 'linear-gradient(135deg,#1a1a2e,#16213e)', icon: '🍦', label: 'Vanilla' },
 };
 
@@ -1790,7 +1787,6 @@ async function loadVersionList(selectedVersion) {
   const sel  = document.getElementById('cfgVersion');
   const type = document.getElementById('cfgServerType').value;
   const endpoint = type === 'fabric'   ? '/api/fabric-versions'
-                 : type === 'mohist'   ? '/api/mohist-versions'
                  : type === 'arclight' ? '/api/arclight-versions'
                  :                       '/api/paper-versions';
   sel.innerHTML    = '<option>로딩 중...</option>';
