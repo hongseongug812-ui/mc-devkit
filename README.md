@@ -20,7 +20,7 @@
 
 ## 다운로드
 
-[MC DevKit v1.7.9 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.7.9/MC.DevKit.Setup.1.7.9.exe)
+[MC DevKit v1.7.10 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.7.10/MC.DevKit.Setup.1.7.10.exe)
 
 > Windows 전용 / 설치 후 바탕화면 MC DevKit 실행
 
