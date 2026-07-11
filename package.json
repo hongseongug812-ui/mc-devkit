@@ -1,6 +1,6 @@
 {
   "name": "mc-devkit",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Minecraft Plugin Dev Toolkit — 팀 협업 + 핫 리로드",
   "main": "main.js",
   "scripts": {
