@@ -26,9 +26,9 @@ class ServerManager {
     this._crashTimes = [];
   }
 
-  // 서버 타입별 독립 폴더 (fabric/paper/vanilla 충돌 방지)
+  // 프로필별 독립 폴더 (serverFolder 우선, 없으면 serverType 폴백)
   get _dir() {
-    return path.join(this.config.serverDir, this.config.serverType || 'paper');
+    return path.join(this.config.serverDir, this.config.serverFolder || this.config.serverType || 'paper');
   }
 
   // Adoptium 압축 해제 후 java 실행 파일 경로

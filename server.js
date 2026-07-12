@@ -42,14 +42,20 @@ const CONFIG = {
   paperVersion: _saved.paperVersion || process.env.PAPER_VERSION || '1.21.4',
   memory:       _saved.memory       || process.env.MEMORY        || '2G',
   serverType:   _saved.serverType   || 'paper',
+  serverFolder: _saved.serverFolder || null,
   rconPassword: process.env.RCON_PASSWORD || 'devkit_' + Math.random().toString(36).slice(2),
   buildCmd:     _saved.buildCmd     || process.env.BUILD_CMD     || null,
   playitSecret: _saved.playitSecret || process.env.PLAYIT_SECRET || null,
 };
 
-// 서버 타입별 독립 폴더 계산 (server-manager와 동일 로직)
+// 프로필 이름을 파일시스템 안전 폴더명으로 변환
+function sanitizeFolder(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9가-힣_\-]/g, '_').slice(0, 64) || 'default';
+}
+
+// 프로필별 독립 폴더 계산 (server-manager와 동일 로직)
 function activeServerDir() {
-  return path.join(CONFIG.serverDir, CONFIG.serverType || 'paper');
+  return path.join(CONFIG.serverDir, CONFIG.serverFolder || CONFIG.serverType || 'paper');
 }
 
 // ── 상태 ──────────────────────────────────────────────────────────────────
@@ -59,7 +65,7 @@ const state = { serverStatus: 'stopped', tunnelUrl: null, mcAddress: null, playe
 const rcon = new RconClient('127.0.0.1', 25575, CONFIG.rconPassword);
 
 const serverManager = new ServerManager(
-  { serverDir: CONFIG.serverDir, version: CONFIG.paperVersion, memory: CONFIG.memory, serverType: CONFIG.serverType, rconPassword: CONFIG.rconPassword },
+  { serverDir: CONFIG.serverDir, version: CONFIG.paperVersion, memory: CONFIG.memory, serverType: CONFIG.serverType, serverFolder: CONFIG.serverFolder, rconPassword: CONFIG.rconPassword },
   (line) => {
     teamManager?.broadcastLog(line);
 
@@ -191,14 +197,15 @@ function startServer(port) {
     app.post('/api/tunnel/stop',    (_, res)        => { tunnelManager.stop(); res.json({ ok: true }); });
 
     app.post('/api/config', (req, res) => {
-      const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType } = req.body;
+      const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder } = req.body;
       if (projectDir)   { CONFIG.projectDir  = projectDir;  buildWatcher.config.projectDir = projectDir; }
       if (pluginName)   { CONFIG.pluginName   = pluginName;  buildWatcher.config.pluginName = pluginName; }
       if (serverDir)    { CONFIG.serverDir    = serverDir;   serverManager.config.serverDir = serverDir; }
       if (memory)       { CONFIG.memory       = memory;      serverManager.config.memory    = memory; }
       if (paperVersion) { CONFIG.paperVersion = paperVersion; serverManager.config.version  = paperVersion; }
       if (buildCmd !== undefined) { CONFIG.buildCmd = buildCmd; buildWatcher.config.buildCmd = buildCmd || null; }
-      if (serverType) { CONFIG.serverType = serverType; serverManager.config.serverType = serverType; }
+      if (serverType)   { CONFIG.serverType   = serverType;  serverManager.config.serverType   = serverType; }
+      if (serverFolder !== undefined) { CONFIG.serverFolder = serverFolder; serverManager.config.serverFolder = serverFolder || null; }
       saveConfig();
       res.json({ ok: true, config: CONFIG });
     });
@@ -215,11 +222,13 @@ function startServer(port) {
       const { name, image } = req.body;
       if (!name?.trim()) return res.status(400).json({ error: '프로필 이름을 입력하세요.' });
       const profiles = loadProfiles();
+      const folder = sanitizeFolder(name);
       profiles[name] = {
         serverType:   CONFIG.serverType,
         paperVersion: CONFIG.paperVersion,
         memory:       CONFIG.memory,
         serverDir:    CONFIG.serverDir,
+        serverFolder: folder,
         projectDir:   CONFIG.projectDir,
         pluginName:   CONFIG.pluginName,
         buildCmd:     CONFIG.buildCmd,
@@ -238,15 +247,20 @@ function startServer(port) {
 
     app.post('/api/profiles/:name/load', (req, res) => {
       const profiles = loadProfiles();
-      const p = profiles[decodeURIComponent(req.params.name)];
+      const name = decodeURIComponent(req.params.name);
+      const p = profiles[name];
       if (!p) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
-      if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType = p.serverType; }
-      if (p.paperVersion) { CONFIG.paperVersion = p.paperVersion; serverManager.config.version    = p.paperVersion; }
-      if (p.memory)       { CONFIG.memory       = p.memory;       serverManager.config.memory     = p.memory; }
-      if (p.serverDir)    { CONFIG.serverDir    = p.serverDir;    serverManager.config.serverDir  = p.serverDir; }
-      if (p.projectDir)   { CONFIG.projectDir   = p.projectDir;   buildWatcher.config.projectDir  = p.projectDir; }
-      if (p.pluginName)   { CONFIG.pluginName   = p.pluginName;   buildWatcher.config.pluginName  = p.pluginName; }
-      if (p.buildCmd !== undefined) { CONFIG.buildCmd = p.buildCmd; buildWatcher.config.buildCmd  = p.buildCmd || null; }
+      if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType   = p.serverType; }
+      if (p.paperVersion) { CONFIG.paperVersion = p.paperVersion; serverManager.config.version      = p.paperVersion; }
+      if (p.memory)       { CONFIG.memory       = p.memory;       serverManager.config.memory       = p.memory; }
+      if (p.serverDir)    { CONFIG.serverDir    = p.serverDir;    serverManager.config.serverDir    = p.serverDir; }
+      if (p.projectDir)   { CONFIG.projectDir   = p.projectDir;   buildWatcher.config.projectDir    = p.projectDir; }
+      if (p.pluginName)   { CONFIG.pluginName   = p.pluginName;   buildWatcher.config.pluginName    = p.pluginName; }
+      if (p.buildCmd !== undefined) { CONFIG.buildCmd = p.buildCmd; buildWatcher.config.buildCmd    = p.buildCmd || null; }
+      // 저장된 serverFolder 복원; 없으면 프로필 이름으로 자동 생성
+      const folder = p.serverFolder || sanitizeFolder(name);
+      CONFIG.serverFolder = folder;
+      serverManager.config.serverFolder = folder;
       saveConfig();
       res.json({ ok: true, config: CONFIG });
     });
