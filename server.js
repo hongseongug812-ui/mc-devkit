@@ -116,7 +116,7 @@ const serverManager = new ServerManager(
 );
 
 const buildWatcher = new BuildWatcher(
-  { projectDir: CONFIG.projectDir, serverDir: CONFIG.serverDir, pluginName: CONFIG.pluginName, buildCmd: CONFIG.buildCmd },
+  { projectDir: CONFIG.projectDir, serverDir: CONFIG.serverDir, serverType: CONFIG.serverType, serverFolder: CONFIG.serverFolder, pluginName: CONFIG.pluginName, buildCmd: CONFIG.buildCmd },
   rcon,
   (line) => { teamManager?.broadcastLog(line); }
 );
@@ -164,10 +164,13 @@ function startServer(port) {
       onStop:    () => serverManager.stop(),
       onRestart: () => serverManager.restart(),
       onBuild:   () => buildWatcher.triggerBuild(),
-      onReload: () => {
+      onReload: async () => {
         if (serverManager.getStatus() !== 'running')
           throw new Error('서버가 실행 중이 아닙니다.');
-        return rcon.sendSafe(`plugman reload ${CONFIG.pluginName}`);
+        const resp = (await rcon.sendSafe(`plugman reload ${CONFIG.pluginName}`) || '').trim();
+        const failed = !resp || /not found|no such|unknown command|does not exist|찾을 수 없|실패|error/i.test(resp);
+        if (failed) throw new Error(`리로드 실패 — 서버 응답: "${resp || '(응답 없음)'}"`);
+        teamManager?.broadcastLog(`[DevKit] ${CONFIG.pluginName} 리로드 완료 ✓ — 서버 응답: "${resp}"`);
       },
       onCommand: (cmd) => {
         if (serverManager.getStatus() !== 'running')
@@ -200,12 +203,12 @@ function startServer(port) {
       const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder } = req.body;
       if (projectDir)   { CONFIG.projectDir  = projectDir;  buildWatcher.config.projectDir = projectDir; }
       if (pluginName)   { CONFIG.pluginName   = pluginName;  buildWatcher.config.pluginName = pluginName; }
-      if (serverDir)    { CONFIG.serverDir    = serverDir;   serverManager.config.serverDir = serverDir; }
+      if (serverDir)    { CONFIG.serverDir    = serverDir;   serverManager.config.serverDir = serverDir; buildWatcher.config.serverDir = serverDir; }
       if (memory)       { CONFIG.memory       = memory;      serverManager.config.memory    = memory; }
       if (paperVersion) { CONFIG.paperVersion = paperVersion; serverManager.config.version  = paperVersion; }
       if (buildCmd !== undefined) { CONFIG.buildCmd = buildCmd; buildWatcher.config.buildCmd = buildCmd || null; }
-      if (serverType)   { CONFIG.serverType   = serverType;  serverManager.config.serverType   = serverType; }
-      if (serverFolder !== undefined) { CONFIG.serverFolder = serverFolder; serverManager.config.serverFolder = serverFolder || null; }
+      if (serverType)   { CONFIG.serverType   = serverType;  serverManager.config.serverType   = serverType; buildWatcher.config.serverType = serverType; }
+      if (serverFolder !== undefined) { CONFIG.serverFolder = serverFolder; serverManager.config.serverFolder = serverFolder || null; buildWatcher.config.serverFolder = serverFolder || null; }
       saveConfig();
       res.json({ ok: true, config: CONFIG });
     });
@@ -250,10 +253,10 @@ function startServer(port) {
       const name = decodeURIComponent(req.params.name);
       const p = profiles[name];
       if (!p) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
-      if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType   = p.serverType; }
+      if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType   = p.serverType; buildWatcher.config.serverType = p.serverType; }
       if (p.paperVersion) { CONFIG.paperVersion = p.paperVersion; serverManager.config.version      = p.paperVersion; }
       if (p.memory)       { CONFIG.memory       = p.memory;       serverManager.config.memory       = p.memory; }
-      if (p.serverDir)    { CONFIG.serverDir    = p.serverDir;    serverManager.config.serverDir    = p.serverDir; }
+      if (p.serverDir)    { CONFIG.serverDir    = p.serverDir;    serverManager.config.serverDir    = p.serverDir; buildWatcher.config.serverDir = p.serverDir; }
       if (p.projectDir)   { CONFIG.projectDir   = p.projectDir;   buildWatcher.config.projectDir    = p.projectDir; }
       if (p.pluginName)   { CONFIG.pluginName   = p.pluginName;   buildWatcher.config.pluginName    = p.pluginName; }
       if (p.buildCmd !== undefined) { CONFIG.buildCmd = p.buildCmd; buildWatcher.config.buildCmd    = p.buildCmd || null; }
@@ -261,6 +264,7 @@ function startServer(port) {
       const folder = p.serverFolder || sanitizeFolder(name);
       CONFIG.serverFolder = folder;
       serverManager.config.serverFolder = folder;
+      buildWatcher.config.serverFolder = folder;
       saveConfig();
       res.json({ ok: true, config: CONFIG });
     });
@@ -389,7 +393,7 @@ function startServer(port) {
         const ts  = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const out = path.join(backupDir, `world-${ts}.tar.gz`);
 
-        const serverDirAbs = path.resolve(CONFIG.serverDir);
+        const serverDirAbs = path.resolve(activeServerDir());
         const worlds = ['world','world_nether','world_the_end']
           .filter(w => fs.pathExistsSync(path.join(serverDirAbs, w)));
 

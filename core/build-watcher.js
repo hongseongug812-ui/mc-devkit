@@ -11,13 +11,32 @@ const execAsync = promisify(exec);
 
 class BuildWatcher {
   constructor(config, rcon, onLog) {
-    // config: { projectDir, serverDir, pluginName, buildCmd }
+    // config: { projectDir, serverDir, serverType, serverFolder, pluginName, buildCmd }
     this.config = config;
     this.rcon = rcon;
     this.onLog = onLog;
     this.watcher = null;
     this.building = false;
     this._debounceTimer = null;
+  }
+
+  // 프로필별 독립 폴더 (server-manager / server.js activeServerDir()와 동일 로직)
+  _activeServerDir() {
+    return path.join(this.config.serverDir, this.config.serverFolder || this.config.serverType || 'paper');
+  }
+
+  // 프로젝트 리소스로 빌드 산출물 종류 판별
+  // - 'mod'          : Fabric 모드 (fabric.mod.json) → mods/, 핫 리로드 불가
+  // - 'plugin-modern': Paper 신형 플러그인 (paper-plugin.yml) → plugins/, PlugManX가 리로드 못 함 (PluginBootstrap 구조)
+  // - 'plugin-legacy': 레거시 Bukkit 플러그인 (plugin.yml) → plugins/, PlugManX 리로드 가능
+  // (Arclight/Cardboard처럼 모드+플러그인이 공존하는 하이브리드 서버 대응)
+  async _detectArtifactKind() {
+    const res = path.join(this.config.projectDir, 'src', 'main', 'resources');
+    if (await fs.pathExists(path.join(res, 'fabric.mod.json'))) return 'mod';
+    if (await fs.pathExists(path.join(res, 'paper-plugin.yml'))) return 'plugin-modern';
+    if (await fs.pathExists(path.join(res, 'plugin.yml'))) return 'plugin-legacy';
+    // 판별 불가 → 서버 타입으로 폴백 (순수 fabric이면 mod, 그 외엔 레거시 플러그인으로 간주)
+    return this.config.serverType === 'fabric' ? 'mod' : 'plugin-legacy';
   }
 
   // ── 심링크 생성 (Windows는 복사 폴백) ───────────────────────────────────────
@@ -28,8 +47,11 @@ class BuildWatcher {
 
     if (jars.length === 0) throw new Error('빌드된 jar 파일을 찾을 수 없습니다.');
 
+    const kind = await this._detectArtifactKind();
+    const folder = kind === 'mod' ? 'mods' : 'plugins';
+
     const src = path.resolve(jars[0]);
-    const dest = path.join(this.config.serverDir, 'plugins', `${this.config.pluginName}.jar`);
+    const dest = path.join(this._activeServerDir(), folder, `${this.config.pluginName}.jar`);
 
     await fs.ensureDir(path.dirname(dest));
 
@@ -44,6 +66,8 @@ class BuildWatcher {
       await fs.copy(src, dest);
       this.onLog(`[DevKit] 파일 복사 완료 → ${dest}`);
     }
+
+    return kind;
   }
 
   // ── Gradle 빌드 실행 ────────────────────────────────────────────────────────
@@ -69,8 +93,16 @@ class BuildWatcher {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       this.onLog(`[DevKit] 빌드 성공 ✓ (${elapsed}초)`);
 
-      await this._linkJar();
-      await this._reload();
+      const kind = await this._linkJar();
+      if (kind === 'mod') {
+        // Fabric 모드는 클래스 리로드가 불가능 — 반영하려면 서버 재시작 필요
+        this.onLog(`[DevKit] 모드는 핫 리로드를 지원하지 않습니다 — 서버를 재시작해야 적용됩니다.`);
+      } else if (kind === 'plugin-modern') {
+        // paper-plugin.yml(PluginBootstrap) 방식은 PlugManX가 리로드할 수 없는 구조
+        this.onLog(`[DevKit] paper-plugin.yml(신형) 플러그인은 PlugManX로 핫 리로드가 불가능합니다 — 서버를 재시작해야 적용됩니다.`);
+      } else {
+        await this._reload();
+      }
 
     } catch (err) {
       this.onLog(`[DevKit] 빌드 실패 ✗ — ${err.message.split('\n')[0]}`);
@@ -88,8 +120,16 @@ class BuildWatcher {
   async _reload() {
     try {
       this.onLog(`[DevKit] 플러그인 리로드 중...`);
-      await this.rcon.sendSafe(`plugman reload ${this.config.pluginName}`);
-      this.onLog(`[DevKit] ${this.config.pluginName} 리로드 완료 ✓`);
+      const resp = (await this.rcon.sendSafe(`plugman reload ${this.config.pluginName}`) || '').trim();
+
+      // RCON 호출 자체는 성공해도 PlugManX가 실패 메시지를 응답으로 줄 수 있음 (예외로 안 잡힘)
+      const failed = !resp || /not found|no such|unknown command|does not exist|찾을 수 없|실패|error/i.test(resp);
+      if (failed) {
+        this.onLog(`[DevKit] ${this.config.pluginName} 리로드 실패 — 서버 응답: "${resp || '(응답 없음)'}"`);
+        this.onLog(`[DevKit] PlugManX가 이 서버 환경(하이브리드 등)에서 리로드를 지원하지 않을 수 있습니다 — 서버 재시작을 권장합니다.`);
+      } else {
+        this.onLog(`[DevKit] ${this.config.pluginName} 리로드 완료 ✓ — 서버 응답: "${resp}"`);
+      }
     } catch (err) {
       this.onLog(`[DevKit] RCON 리로드 실패 — ${err.message}`);
     }
