@@ -1784,7 +1784,15 @@ function onServerTypeChange() {
   if (isPaper  || isHybrid) loadPlugins();
 }
 
-async function saveConfig() {
+async function saveServerProperties() {
+  const vd = document.getElementById('cfgViewDistance').value;
+  return fetch('/api/server-properties', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ 'view-distance': vd }),
+  });
+}
+
+async function saveConfig({ saveProperties = true } = {}) {
   await fetch('/api/config', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
@@ -1796,11 +1804,7 @@ async function saveConfig() {
       serverType:   document.getElementById('cfgServerType').value,
     }),
   });
-  const vd = document.getElementById('cfgViewDistance').value;
-  await fetch('/api/server-properties', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ 'view-distance': vd }),
-  });
+  if (saveProperties) await saveServerProperties();
   appendLog('[DevKit] 설정 저장됨', 'devkit');
 }
 
@@ -1912,13 +1916,14 @@ function openProfileNew() {
 }
 
 // 프로필 이름으로 현재 설정 + 이미지를 profiles.json에 기록
-async function persistProfile(name) {
+async function persistProfile(name, create = false) {
   const r = await fetch('/api/profiles', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name, image: currentProfileImage }),
+    body: JSON.stringify({ name, image: currentProfileImage, create }),
   });
   if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 프로필 저장 실패: ${e.error}`, 'error'); return false; }
   currentProfileName = name;
+  await Promise.all([loadPlugins(), loadMods()]);
   appendLog(`[DevKit] 프로필 저장됨: ${name}`, 'devkit');
   return true;
 }
@@ -1926,20 +1931,24 @@ async function persistProfile(name) {
 async function saveProfile() {
   const name = document.getElementById('profileNameInput').value.trim();
   if (!name) { appendLog('[DevKit] 프로필 이름을 입력하세요.', 'error'); return; }
-  await saveConfig();
-  if (!await persistProfile(name)) return;
+  // The profile endpoint allocates and activates the fresh server directory.
+  // Save directory-bound properties only after that switch has happened.
+  await saveConfig({ saveProperties: false });
+  if (!await persistProfile(name, true)) return;
+  await saveServerProperties();
   document.getElementById('profileNewRow').style.display = 'none';
   loadProfiles();
 }
 
 // "설정 저장" 버튼: 새 프로필 작성 중이면 생성, 기존 프로필을 불러온 상태면 갱신
 async function saveSettingsPanel() {
-  await saveConfig();
   const creatingNew = document.getElementById('profileNewRow').style.display !== 'none';
+  await saveConfig({ saveProperties: !creatingNew });
   if (creatingNew) {
     const name = document.getElementById('profileNameInput').value.trim();
     if (!name) { appendLog('[DevKit] 프로필 이름을 입력하세요.', 'error'); return; }
-    if (!await persistProfile(name)) return;
+    if (!await persistProfile(name, true)) return;
+    await saveServerProperties();
     document.getElementById('profileNewRow').style.display = 'none';
     loadProfiles();
   } else if (currentProfileName) {
@@ -1961,8 +1970,13 @@ async function loadProfile(name) {
 }
 
 async function deleteProfile(name) {
-  if (!confirm(`"${name}" 프로필을 삭제할까요?`)) return;
-  await fetch(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  if (!confirm(`"${name}" 프로필과 맵, 플러그인 등 서버 데이터를 모두 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  const r = await fetch(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    appendLog(`[DevKit] 프로필 삭제 실패: ${e.error || '알 수 없는 오류'}`, 'error');
+    return;
+  }
   appendLog(`[DevKit] 프로필 삭제됨: ${name}`, 'devkit');
   loadProfiles();
 }

@@ -17,6 +17,13 @@ const BuildWatcher   = require('./core/build-watcher');
 const TunnelManager  = require('./core/tunnel-manager');
 const TeamManager    = require('./core/team-manager');
 const PlayitManager  = require('./core/playit-manager');
+const {
+  allocateProfileFolder,
+  pathKey,
+  profileDirectory,
+  profilePathKey,
+  sanitizeFolder,
+} = require('./core/profile-folders');
 
 // ── 설정 자동 저장/로드 ──────────────────────────────────────────────────
 const CONFIG_FILE = path.join(os.homedir(), '.mc-devkit', 'config.json');
@@ -47,11 +54,6 @@ const CONFIG = {
   buildCmd:     _saved.buildCmd     || process.env.BUILD_CMD     || null,
   playitSecret: _saved.playitSecret || process.env.PLAYIT_SECRET || null,
 };
-
-// 프로필 이름을 파일시스템 안전 폴더명으로 변환
-function sanitizeFolder(name) {
-  return name.trim().toLowerCase().replace(/[^a-z0-9가-힣_\-]/g, '_').slice(0, 64) || 'default';
-}
 
 // 프로필별 독립 폴더 계산 (server-manager와 동일 로직)
 function activeServerDir() {
@@ -221,37 +223,95 @@ function startServer(port) {
 
     app.get('/api/profiles', (_, res) => res.json(loadProfiles()));
 
-    app.post('/api/profiles', (req, res) => {
-      const { name, image } = req.body;
-      if (!name?.trim()) return res.status(400).json({ error: '프로필 이름을 입력하세요.' });
-      const profiles = loadProfiles();
-      const folder = sanitizeFolder(name);
-      profiles[name] = {
-        serverType:   CONFIG.serverType,
-        paperVersion: CONFIG.paperVersion,
-        memory:       CONFIG.memory,
-        serverDir:    CONFIG.serverDir,
-        serverFolder: folder,
-        projectDir:   CONFIG.projectDir,
-        pluginName:   CONFIG.pluginName,
-        buildCmd:     CONFIG.buildCmd,
-        image:        image !== undefined ? image : (profiles[name]?.image || null),
-      };
-      saveProfiles(profiles);
-      res.json({ ok: true });
+    app.post('/api/profiles', async (req, res) => {
+      const { image, create = false } = req.body;
+      const name = req.body.name?.trim();
+      if (!name) return res.status(400).json({ error: '프로필 이름을 입력하세요.' });
+
+      try {
+        const profiles = loadProfiles();
+        const existing = Object.prototype.hasOwnProperty.call(profiles, name) ? profiles[name] : null;
+        if (create && existing) {
+          return res.status(409).json({ error: '같은 이름의 프로필이 이미 있습니다.' });
+        }
+        const folder = existing
+          ? (existing.serverFolder || sanitizeFolder(name))
+          : await allocateProfileFolder(name, CONFIG.serverDir, profiles);
+
+        profiles[name] = {
+          serverType:   CONFIG.serverType,
+          paperVersion: CONFIG.paperVersion,
+          memory:       CONFIG.memory,
+          serverDir:    CONFIG.serverDir,
+          serverFolder: folder,
+          projectDir:   CONFIG.projectDir,
+          pluginName:   CONFIG.pluginName,
+          buildCmd:     CONFIG.buildCmd,
+          image:        image !== undefined ? image : (existing?.image || null),
+        };
+        saveProfiles(profiles);
+
+        // A newly-created profile must become active immediately. Otherwise all file APIs
+        // and server start operations keep using the previously-loaded profile directory.
+        CONFIG.serverFolder = folder;
+        serverManager.config.serverFolder = folder;
+        buildWatcher.config.serverFolder = folder;
+        saveConfig();
+
+        res.json({ ok: true, created: !existing, config: CONFIG });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
     });
 
-    app.delete('/api/profiles/:name', (req, res) => {
+    app.delete('/api/profiles/:name', async (req, res) => {
       const profiles = loadProfiles();
-      delete profiles[decodeURIComponent(req.params.name)];
-      saveProfiles(profiles);
-      res.json({ ok: true });
+      const name = req.params.name;
+      const profile = Object.prototype.hasOwnProperty.call(profiles, name) ? profiles[name] : null;
+      if (!profile) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
+
+      try {
+        const profileDir = profileDirectory(
+          profile.serverDir || CONFIG.serverDir,
+          profile.serverFolder || sanitizeFolder(name)
+        );
+        const activeDir = path.resolve(activeServerDir());
+        const deletingActive = pathKey(profileDir) === pathKey(activeDir);
+
+        if (deletingActive && serverManager.getStatus() !== 'stopped') {
+          return res.status(409).json({ error: '실행 중인 서버 프로필은 삭제할 수 없습니다. 서버를 먼저 중지하세요.' });
+        }
+
+        const sharedByAnotherProfile = Object.entries(profiles).some(([otherName, other]) => {
+          if (otherName === name || !other) return false;
+          try {
+            return profilePathKey(otherName, other, CONFIG.serverDir) === pathKey(profileDir);
+          } catch {
+            return false;
+          }
+        });
+
+        if (!sharedByAnotherProfile) await fs.remove(profileDir);
+        delete profiles[name];
+        saveProfiles(profiles);
+
+        if (deletingActive) {
+          CONFIG.serverFolder = null;
+          serverManager.config.serverFolder = null;
+          buildWatcher.config.serverFolder = null;
+          saveConfig();
+        }
+
+        res.json({ ok: true, dataDeleted: !sharedByAnotherProfile });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
     });
 
     app.post('/api/profiles/:name/load', (req, res) => {
       const profiles = loadProfiles();
-      const name = decodeURIComponent(req.params.name);
-      const p = profiles[name];
+      const name = req.params.name;
+      const p = Object.prototype.hasOwnProperty.call(profiles, name) ? profiles[name] : null;
       if (!p) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
       if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType   = p.serverType; buildWatcher.config.serverType = p.serverType; }
       if (p.paperVersion) { CONFIG.paperVersion = p.paperVersion; serverManager.config.version      = p.paperVersion; }
@@ -686,6 +746,7 @@ function startServer(port) {
     app.post('/api/server-properties', async (req, res) => {
       const file = path.join(activeServerDir(), 'server.properties');
       try {
+        await fs.ensureDir(path.dirname(file));
         let original = '';
         try { original = await fs.readFile(file, 'utf8'); } catch {}
         await fs.writeFile(file, stringifyProperties(req.body, original), 'utf8');
