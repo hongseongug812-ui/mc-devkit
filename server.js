@@ -17,6 +17,8 @@ const BuildWatcher   = require('./core/build-watcher');
 const TunnelManager  = require('./core/tunnel-manager');
 const TeamManager    = require('./core/team-manager');
 const PlayitManager  = require('./core/playit-manager');
+const { logger }     = require('./core/diagnostic-logger');
+const APP_VERSION    = require('./package.json').version;
 const {
   allocateProfileFolder,
   pathKey,
@@ -62,14 +64,32 @@ function activeServerDir() {
 
 // ── 상태 ──────────────────────────────────────────────────────────────────
 const state = { serverStatus: 'stopped', tunnelUrl: null, mcAddress: null, players: [], tps: null };
+let teamManager = null;
+
+function inferLogLevel(line, source) {
+  const text = String(line || '');
+  if (source.includes('stderr') || /\b(?:ERROR|FATAL)\b|Exception|Caused by:|실패|오류/i.test(text)) return 'error';
+  if (/\bWARN(?:ING)?\b|경고/i.test(text)) return 'warn';
+  return 'info';
+}
+
+function publishLog(line, source = 'devkit') {
+  logger[inferLogLevel(line, source)](source, line);
+  teamManager?.broadcastLog(line);
+}
 
 // ── 모듈 인스턴스 ─────────────────────────────────────────────────────────
-const rcon = new RconClient('127.0.0.1', 25575, CONFIG.rconPassword);
+const rcon = new RconClient(
+  '127.0.0.1',
+  25575,
+  CONFIG.rconPassword,
+  (line) => publishLog(line, 'rcon')
+);
 
 const serverManager = new ServerManager(
   { serverDir: CONFIG.serverDir, version: CONFIG.paperVersion, memory: CONFIG.memory, serverType: CONFIG.serverType, serverFolder: CONFIG.serverFolder, rconPassword: CONFIG.rconPassword },
-  (line) => {
-    teamManager?.broadcastLog(line);
+  (line, stream = 'stdout') => {
+    publishLog(line, stream === 'stderr' ? 'minecraft.stderr' : 'minecraft');
 
     // 플레이어 접속/퇴장 파싱
     const joined = line.match(/(\w+) joined the game/);
@@ -108,34 +128,35 @@ const serverManager = new ServerManager(
 
       if (s === 'running' && !ngrokManager.isRunning()) {
         ngrokManager.start().catch(e =>
-          teamManager?.broadcastLog(`[DevKit] ngrok 자동 시작 실패: ${e.message}`)
+          publishLog(`[DevKit] ngrok 자동 시작 실패: ${e.message}`, 'playit')
         );
       }
     }
   },
   // 크래시 콜백
-  () => { teamManager?.broadcast({ type: 'SERVER_CRASH' }); }
+  () => {
+    logger.error('minecraft', 'server process crashed');
+    teamManager?.broadcast({ type: 'SERVER_CRASH' });
+  }
 );
 
 const buildWatcher = new BuildWatcher(
   { projectDir: CONFIG.projectDir, serverDir: CONFIG.serverDir, serverType: CONFIG.serverType, serverFolder: CONFIG.serverFolder, pluginName: CONFIG.pluginName, buildCmd: CONFIG.buildCmd },
   rcon,
-  (line) => { teamManager?.broadcastLog(line); }
+  (line) => publishLog(line, 'build')
 );
 
 const tunnelManager = new TunnelManager(
   null,
-  (line) => { teamManager?.broadcastLog(line); },
+  (line) => publishLog(line, 'tunnel'),
   (url)  => { state.tunnelUrl = url; teamManager?.broadcastStatus(state.serverStatus, url); }
 );
 
 const ngrokManager = new PlayitManager(
-  (line) => { teamManager?.broadcastLog(line); },
+  (line) => publishLog(line, 'playit'),
   (url)  => { teamManager?.broadcast({ type: 'PLAYIT_CLAIM', url }); },
   (addr) => { state.mcAddress = addr; teamManager?.broadcast({ type: 'MC_ADDRESS', address: addr }); }
 );
-
-let teamManager = null;
 
 // REST API 권한 체크 미들웨어
 function requirePerm(perm) {
@@ -154,6 +175,40 @@ function requirePerm(perm) {
 function startServer(port) {
   return new Promise((resolve) => {
     const app = express();
+    logger.info('app', 'http server initializing', { port, pid: process.pid });
+
+    // Persist every meaningful API operation. High-frequency status polling is skipped,
+    // but failures are always recorded. Request bodies and authentication tokens are never logged.
+    app.use((req, res, next) => {
+      const startedAt = Date.now();
+      let responseError = null;
+      const originalJson = res.json.bind(res);
+      res.json = (body) => {
+        if (res.statusCode >= 400 && body?.error) responseError = body.error;
+        return originalJson(body);
+      };
+      res.on('finish', () => {
+        if (!req.path.startsWith('/api/')) return;
+        const noisyGet = req.method === 'GET' && [
+          '/api/status', '/api/ngrok/status', '/api/mc-address', '/api/players',
+        ].includes(req.path);
+        if (noisyGet && res.statusCode < 400) return;
+        const token = req.headers['x-devkit-token'];
+        const client = token ? teamManager?.clients.get(token) : null;
+        const details = {
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          durationMs: Date.now() - startedAt,
+          contentLength: Number(req.headers['content-length'] || 0),
+          actor: client ? { name: client.name, role: client.role } : null,
+          error: responseError,
+        };
+        const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+        logger[level]('api', `${req.method} ${req.path} -> ${res.statusCode}`, details);
+      });
+      next();
+    });
     app.use(express.json({ limit: '512mb' }));
     app.use(express.static(path.join(__dirname, 'client')));
 
@@ -172,7 +227,7 @@ function startServer(port) {
         const resp = (await rcon.sendSafe(`plugman reload ${CONFIG.pluginName}`) || '').trim();
         const failed = !resp || /not found|no such|unknown command|does not exist|찾을 수 없|실패|error/i.test(resp);
         if (failed) throw new Error(`리로드 실패 — 서버 응답: "${resp || '(응답 없음)'}"`);
-        teamManager?.broadcastLog(`[DevKit] ${CONFIG.pluginName} 리로드 완료 ✓ — 서버 응답: "${resp}"`);
+        publishLog(`[DevKit] ${CONFIG.pluginName} 리로드 완료 ✓ — 서버 응답: "${resp}"`, 'rcon');
       },
       onCommand: (cmd) => {
         if (serverManager.getStatus() !== 'running')
@@ -181,6 +236,10 @@ function startServer(port) {
       },
       onStdin: (input) => {
         serverManager.sendInput(input);
+      },
+      onAudit: (event, details, level = 'info') => {
+        const method = typeof logger[level] === 'function' ? level : 'info';
+        logger[method]('team', event, details);
       },
     });
 
@@ -193,6 +252,24 @@ function startServer(port) {
       mcAddress:  state.mcAddress,
       players:    state.players,
     }));
+
+    app.get('/api/diagnostics/logs/latest', (_, res) => {
+      const file = logger.latestFile();
+      if (!file) return res.status(404).json({ error: '진단 로그가 아직 없습니다.' });
+      res.download(file, path.basename(file));
+    });
+
+    app.get('/api/diagnostics/logs', (_, res) => {
+      res.json({ files: logger.listFiles().map(({ name, size, modifiedAt }) => ({ name, size, modifiedAt })) });
+    });
+
+    app.post('/api/diagnostics/client-error', (req, res) => {
+      const { type, message, stack, source, line, column } = req.body || {};
+      logger.error('renderer', message || type || 'unknown renderer error', {
+        type, stack, source, line, column,
+      });
+      res.json({ ok: true });
+    });
 
     app.post('/api/server/start',   async (_, res) => safeRun(res, () => serverManager.start()));
     app.post('/api/server/stop',    async (_, res) => safeRun(res, () => serverManager.stop()));
@@ -214,7 +291,7 @@ function startServer(port) {
       saveConfig();
       res.json({ ok: true, config: CONFIG });
     });
-    app.get('/api/config', (_, res) => res.json(CONFIG));
+    app.get('/api/config', (_, res) => res.json({ ...CONFIG, appVersion: APP_VERSION }));
 
     // ── 서버 프로필 ───────────────────────────────────────────────────────────
     const PROFILES_FILE = path.join(os.homedir(), '.mc-devkit', 'profiles.json');
@@ -439,7 +516,7 @@ function startServer(port) {
     // ── 세계 백업 ──────────────────────────────────────────────────────────
     app.post('/api/backup', async (_, res) => {
       try {
-        teamManager?.broadcastLog('[DevKit] 백업 시작...');
+        publishLog('[DevKit] 백업 시작...', 'backup');
 
         // 서버 실행 중이면 먼저 저장
         if (serverManager.getStatus() === 'running') {
@@ -491,10 +568,10 @@ function startServer(port) {
         }
 
         const size = (await fs.stat(backupFile)).size;
-        teamManager?.broadcastLog(`[DevKit] 백업 완료 ✓ (${(size/1024/1024).toFixed(1)}MB) → ${backupFile}`);
+        publishLog(`[DevKit] 백업 완료 ✓ (${(size/1024/1024).toFixed(1)}MB) → ${backupFile}`, 'backup');
         res.json({ ok: true, file: backupFile, size });
       } catch (e) {
-        teamManager?.broadcastLog(`[DevKit] 백업 실패: ${e.message}`);
+        publishLog(`[DevKit] 백업 실패: ${e.message}`, 'backup');
         res.status(500).json({ error: e.message });
       }
     });
@@ -523,7 +600,7 @@ function startServer(port) {
         await fs.ensureDir(dir);
         const buf = Buffer.from(data.replace(/^data:[^;]+;base64,/, ''), 'base64');
         await fs.writeFile(path.join(dir, path.basename(name)), buf);
-        teamManager?.broadcastLog(`[DevKit] 모드 업로드: ${name}`);
+        publishLog(`[DevKit] 모드 업로드: ${name}`, 'mods');
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
@@ -532,7 +609,7 @@ function startServer(port) {
       try {
         const safe = path.basename(req.params.name);
         await fs.remove(path.join(activeServerDir(), 'mods', safe));
-        teamManager?.broadcastLog(`[DevKit] 모드 삭제: ${safe}`);
+        publishLog(`[DevKit] 모드 삭제: ${safe}`, 'mods');
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
@@ -544,8 +621,20 @@ function startServer(port) {
       const serverDirAbs = path.resolve(activeServerDir());
       const worlds = ['world', 'world_nether', 'world_the_end'];
       for (const w of worlds) await fs.remove(path.join(serverDirAbs, w)).catch(() => {});
-      teamManager?.broadcastLog('[DevKit] 월드 삭제 완료 ✓');
+      publishLog('[DevKit] 월드 삭제 완료 ✓', 'world');
       res.json({ ok: true });
+    });
+
+    // ── 서버 파일 초기화 (현재 프로필 폴더 전체 삭제) ─────────────────────────
+    app.delete('/api/server-files', requirePerm('world'), async (_, res) => {
+      if (serverManager.getStatus() !== 'stopped')
+        return res.status(400).json({ error: '서버를 먼저 중지해주세요.' });
+      try {
+        const dir = path.resolve(activeServerDir());
+        await fs.remove(dir);
+        publishLog('[DevKit] 서버 파일 초기화 완료 ✓ — 다음 시작 시 서버가 새로 설치됩니다.', 'world');
+        res.json({ ok: true });
+      } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
     app.post('/api/world/upload', requirePerm('world'), async (req, res) => {
@@ -622,12 +711,12 @@ function startServer(port) {
               }
             }
           }
-          teamManager?.broadcastLog(`[DevKit] 월드 폴더 ${moved}개 적용 완료`);
+          publishLog(`[DevKit] 월드 폴더 ${moved}개 적용 완료`, 'world');
         } finally {
           await fs.remove(tmpExtract).catch(() => {});
           await fs.remove(tmpZip).catch(() => {});
         }
-        teamManager?.broadcastLog(`[DevKit] 월드 업로드 완료 ✓ (${name})`);
+        publishLog(`[DevKit] 월드 업로드 완료 ✓ (${name})`, 'world');
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
@@ -672,23 +761,23 @@ function startServer(port) {
         await fs.ensureDir(dir);
         const buf = Buffer.from(data.replace(/^data:[^;]+;base64,/, ''), 'base64');
         await fs.writeFile(path.join(dir, safeName), buf);
-        teamManager?.broadcastLog(`[DevKit] 플러그인 업로드: ${safeName}`);
+        publishLog(`[DevKit] 플러그인 업로드: ${safeName}`, 'plugins');
 
         if (serverManager.getStatus() === 'running') {
           const pName = safeName.replace(/\.jar$/i, '').replace(/[-_][\d.]+$/, '');
           try {
             await rcon.sendSafe(`plugman load ${pName}`);
-            teamManager?.broadcastLog(`[DevKit] 플러그인 로드 완료: ${pName} ✓`);
+            publishLog(`[DevKit] 플러그인 로드 완료: ${pName} ✓`, 'plugins');
           } catch {
             try {
               await rcon.sendSafe(`plugman reload ${pName}`);
-              teamManager?.broadcastLog(`[DevKit] 플러그인 리로드 완료: ${pName} ✓`);
+              publishLog(`[DevKit] 플러그인 리로드 완료: ${pName} ✓`, 'plugins');
             } catch (e2) {
-              teamManager?.broadcastLog(`[DevKit] 자동 로드 실패 — 재시작 후 적용: ${e2.message}`);
+              publishLog(`[DevKit] 자동 로드 실패 — 재시작 후 적용: ${e2.message}`, 'plugins');
             }
           }
         } else {
-          teamManager?.broadcastLog(`[DevKit] 서버 시작 시 자동 로드됩니다: ${safeName}`);
+          publishLog(`[DevKit] 서버 시작 시 자동 로드됩니다: ${safeName}`, 'plugins');
         }
         res.json({ ok: true, filename: safeName });
       } catch (e) { res.status(500).json({ error: e.message }); }
@@ -698,7 +787,7 @@ function startServer(port) {
       try {
         const safe = path.basename(req.params.name);
         await fs.remove(path.join(activeServerDir(), 'plugins', safe));
-        teamManager?.broadcastLog(`[DevKit] 플러그인 삭제: ${safe}`);
+        publishLog(`[DevKit] 플러그인 삭제: ${safe}`, 'plugins');
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
@@ -750,7 +839,7 @@ function startServer(port) {
         let original = '';
         try { original = await fs.readFile(file, 'utf8'); } catch {}
         await fs.writeFile(file, stringifyProperties(req.body, original), 'utf8');
-        teamManager?.broadcastLog('[DevKit] server.properties 저장 완료 ✓ (재시작 후 적용)');
+        publishLog('[DevKit] server.properties 저장 완료 ✓ (재시작 후 적용)', 'config');
         res.json({ ok: true });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });

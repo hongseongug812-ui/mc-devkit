@@ -744,6 +744,7 @@
 <div id="titlebar">
   <div class="titlebar-left">
     <span class="mc-logo">MC DevKit</span>
+    <span id="appVersion" style="font-size:10px;color:var(--mc-gray);margin-left:2px;"></span>
     <span id="serverBadge" class="mc-badge badge-stopped">OFFLINE</span>
   </div>
   <div class="titlebar-right">
@@ -803,6 +804,7 @@
           📁 맵 업로드 (.zip)
           <input type="file" accept=".zip" style="display:none" onchange="uploadWorld(this)"/>
         </label>
+        <button class="mc-btn xs t-red" style="width:100%;margin-top:6px;" onclick="resetServerFiles()">⚠ 서버 파일 초기화</button>
       </div>
 
       <div class="mc-section">
@@ -1692,6 +1694,15 @@ async function newWorld() {
   appendLog('[DevKit] 월드 삭제 완료, 서버 시작 시 새 월드가 생성됩니다.', 'devkit');
 }
 
+async function resetServerFiles() {
+  if (!hasPerm('world')) { appendLog('[DevKit] 권한 없음: 서버 파일 초기화', 'error'); return; }
+  if (!confirm('⚠ 현재 프로필의 서버 파일 전체(월드·플러그인·모드·설정)를 삭제합니다.\n서버가 중지된 상태여야 하며, 되돌릴 수 없습니다. 계속할까요?')) return;
+  if (!confirm('정말로 초기화할까요? 백업이 필요하면 먼저 💾 백업을 실행하세요.')) return;
+  const r = await authFetch('/api/server-files', { method: 'DELETE' });
+  if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 서버 파일 초기화 실패: ${e.error}`, 'error'); return; }
+  appendLog('[DevKit] 서버 파일 초기화 완료 ✓ — 다음 시작 시 서버가 새로 설치됩니다.', 'devkit');
+}
+
 async function uploadWorld(input) {
   if (!hasPerm('world')) { appendLog('[DevKit] 권한 없음: 맵 업로드', 'error'); return; }
   const file = input.files[0];
@@ -2018,6 +2029,7 @@ async function loadVersionList(selectedVersion) {
 
 async function loadConfig() {
   const cfg = await fetch('/api/config').then(r => r.json());
+  if (cfg.appVersion) document.getElementById('appVersion').textContent = 'v' + cfg.appVersion;
   document.getElementById('cfgPlugin').value   = cfg.pluginName || '';
   document.getElementById('cfgProject').value  = cfg.projectDir || '';
   document.getElementById('cfgServer').value   = cfg.serverDir  || '';

@@ -7,10 +7,11 @@ const RCON_AUTH = 3;
 const RCON_COMMAND = 2;
 
 class RconClient {
-  constructor(host = '127.0.0.1', port = 25575, password = '') {
+  constructor(host = '127.0.0.1', port = 25575, password = '', onLog = () => {}) {
     this.host = host;
     this.port = port;
     this.password = password;
+    this.onLog = onLog;
     this.socket = null;
     this.connected = false;
     this.authenticated = false;
@@ -26,19 +27,29 @@ class RconClient {
 
       this.socket.on('connect', () => {
         this.connected = true;
+        this.onLog(`[DevKit] RCON 연결됨 (${this.host}:${this.port})`);
         this._send(RCON_AUTH, this.password)
-          .then(() => { this.authenticated = true; resolve(); })
-          .catch(reject);
+          .then(() => {
+            this.authenticated = true;
+            this.onLog('[DevKit] RCON 인증 완료');
+            resolve();
+          })
+          .catch((error) => {
+            this.onLog(`[DevKit] RCON 인증 실패: ${error.message}`);
+            reject(error);
+          });
       });
 
       this.socket.on('data', (data) => this._onData(data));
 
       this.socket.on('error', (err) => {
         this.connected = false;
+        this.onLog(`[DevKit] RCON 소켓 오류: ${err.message}`);
         reject(err);
       });
 
       this.socket.on('close', () => {
+        if (this.connected || this.authenticated) this.onLog('[DevKit] RCON 연결 종료');
         this.connected = false;
         this.authenticated = false;
       });
@@ -65,6 +76,7 @@ class RconClient {
         if (!this.connected) await this.connect();
         return await this.send(command);
       } catch (err) {
+        this.onLog(`[DevKit] RCON 요청 실패 (${i + 1}/${retries}): ${err.message}`);
         this.disconnect();
         if (i === retries - 1) throw err;
         await new Promise(r => setTimeout(r, 1000 * (i + 1)));

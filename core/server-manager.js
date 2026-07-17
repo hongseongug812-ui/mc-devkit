@@ -238,8 +238,8 @@ class ServerManager {
         '-jar', 'fabric-installer.jar',
         'server', '-mcversion', this.config.version, '-downloadMinecraft',
       ], { cwd: this._dir, stdio: ['pipe', 'pipe', 'pipe'] });
-      proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`)));
-      proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`)));
+      proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`, 'stdout')));
+      proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`, 'stderr')));
       proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Fabric 설치 실패 (exit ${code})`)));
       proc.on('error', reject);
     });
@@ -255,9 +255,8 @@ class ServerManager {
     const verFile  = path.join(modsDir, '.cardboard-version');
     const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
 
-    if (savedVer === this.config.version) return;
-
-    if (savedVer) {
+    // 버전이 바뀌었으면 기존 모드 제거 후 전체 재다운로드
+    if (savedVer && savedVer !== this.config.version) {
       const old = await fs.readdir(modsDir);
       for (const f of old) {
         if (/^(cardboard|icommon|fabric-api)-/i.test(f)) await fs.remove(path.join(modsDir, f));
@@ -265,12 +264,22 @@ class ServerManager {
     }
 
     const CARDBOARD_MODS = [
-      { id: 'fabric-api', name: 'Fabric API' },
-      { id: 'icommon',    name: 'iCommonLib' },
-      { id: 'cardboard',  name: 'Cardboard'  },
+      { id: 'fabric-api', name: 'Fabric API', match: /^fabric-api-/i },
+      { id: 'icommon',    name: 'iCommonLib', match: /^icommon-/i   },
+      { id: 'cardboard',  name: 'Cardboard',  match: /^cardboard-/i },
     ];
 
-    for (const mod of CARDBOARD_MODS) {
+    // 버전 마커만 믿지 않고 실제 jar 존재를 확인 — 삭제된 모드만 다시 받는다
+    const existing = await fs.readdir(modsDir);
+    const missing  = CARDBOARD_MODS.filter(m =>
+      !existing.some(f => f.endsWith('.jar') && m.match.test(f)));
+
+    if (missing.length === 0) {
+      if (savedVer !== this.config.version) await fs.writeFile(verFile, this.config.version);
+      return;
+    }
+
+    for (const mod of missing) {
       this.onLog(`[DevKit] ${mod.name} 다운로드 중...`);
       const { data: versions } = await axios.get(
         `https://api.modrinth.com/v2/project/${mod.id}/version`,
@@ -567,6 +576,7 @@ class ServerManager {
     try {
       const javaPath = await this._ensureJava();
       await fs.ensureDir(this._dir);
+      this.onLog(`[DevKit] 실행 구성: type=${this.config.serverType}, version=${this.config.version}, memory=${this.config.memory}, dir=${this._dir}, java=${javaPath}`);
       await fs.writeFile(path.join(this._dir, 'eula.txt'), 'eula=true\n');
       await this._writeServerProps();
 
@@ -651,7 +661,7 @@ class ServerManager {
 
     this.process.stdout.on('data', (data) => {
       data.toString().split('\n').filter(Boolean).forEach(line => {
-        this.onLog(line);
+        this.onLog(line, 'stdout');
         if (line.includes('Done') && line.includes('For help')) {
           this.status = 'running';
           this.onLog('[DevKit] 서버 준비 완료 ✓');
@@ -660,7 +670,7 @@ class ServerManager {
     });
 
     this.process.stderr.on('data', (data) => {
-      data.toString().split('\n').filter(Boolean).forEach(l => this.onLog(l));
+      data.toString().split('\n').filter(Boolean).forEach(l => this.onLog(l, 'stderr'));
     });
 
     this.process.on('exit', (code) => {

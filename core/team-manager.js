@@ -21,7 +21,7 @@ class TeamManager {
     this._logFlush  = null;
 
     wss.on('connection', (ws, req) => this._onConnect(ws, req));
-    console.log(`[DevKit] Owner 토큰: ${this.ownerToken}`);
+    this._audit('owner-session-created');
 
     // 25초마다 ping → pong 없으면 죽은 연결 강제 종료
     this._heartbeat = setInterval(() => {
@@ -38,9 +38,15 @@ class TeamManager {
     }, 25000);
   }
 
+  _audit(event, details = {}, level = 'info') {
+    try { this.handlers.onAudit?.(event, details, level); } catch {}
+  }
+
   // ── 연결 ────────────────────────────────────────────────────────────────────
-  _onConnect(ws) {
+  _onConnect(ws, req) {
     let token = null;
+    const remoteAddress = req?.socket?.remoteAddress || null;
+    this._audit('websocket-connected', { remoteAddress });
 
     ws.on('message', (raw) => {
       try {
@@ -59,6 +65,7 @@ class TeamManager {
           case 'PING':        ws.send(JSON.stringify({ type: 'PONG', ts: msg.ts })); break;
         }
       } catch (err) {
+        this._audit('websocket-message-failed', { error: err, remoteAddress }, 'error');
         ws.send(JSON.stringify({ type:'ERROR', message: err.message }));
       }
     });
@@ -70,6 +77,8 @@ class TeamManager {
 
     ws.on('close', () => {
       if (token) {
+        const client = this.clients.get(token);
+        this._audit('websocket-disconnected', { name: client?.name, role: client?.role, remoteAddress });
         this.clients.delete(token);
         this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
       }
@@ -91,6 +100,7 @@ class TeamManager {
     }
 
     this.clients.set(token, { ws, name: name || `User_${token.slice(0,4)}`, role, alive: true });
+    this._audit('client-authenticated', { name: name || 'anonymous', role });
     ws.send(JSON.stringify({ type:'AUTH_OK', token, role, name,
       permissions: this._publicPermissions() }));
     this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
@@ -109,6 +119,7 @@ class TeamManager {
     }
     this.broadcast({ type:'ACTION_LOG',
       message:`${client.name}이(가) [${msg.action}] 실행`, by: client.name, action: msg.action });
+    this._audit('action-requested', { name: client.name, role: client.role, action: msg.action });
     try {
       switch (msg.action) {
         case 'start':   await this.handlers.onStart();   break;
@@ -117,7 +128,9 @@ class TeamManager {
         case 'build':   await this.handlers.onBuild();   break;
         case 'reload':  await this.handlers.onReload();  break;
       }
+      this._audit('action-completed', { name: client.name, action: msg.action });
     } catch (err) {
+      this._audit('action-failed', { name: client.name, action: msg.action, error: err }, 'error');
       this.broadcast({ type:'ERROR', message: err.message });
     }
   }
@@ -131,9 +144,12 @@ class TeamManager {
       return;
     }
     try {
+      this._audit('command-requested', { name: client.name, role: client.role, command: msg.command });
       const result = await this.handlers.onCommand(msg.command);
+      this._audit('command-completed', { name: client.name, command: msg.command, result });
       this.broadcast({ type:'COMMAND_RESULT', command: msg.command, result, by: client.name });
     } catch (err) {
+      this._audit('command-failed', { name: client.name, command: msg.command, error: err }, 'error');
       client.ws.send(JSON.stringify({ type:'ERROR', message: err.message }));
     }
   }
@@ -147,9 +163,11 @@ class TeamManager {
       return;
     }
     try {
+      this._audit('stdin-requested', { name: client.name, role: client.role, input: msg.input });
       this.handlers.onStdin(msg.input);
       this.broadcast({ type:'ACTION_LOG', message:`${client.name}이(가) 콘솔 입력: ${msg.input}` });
     } catch (err) {
+      this._audit('stdin-failed', { name: client.name, input: msg.input, error: err }, 'error');
       client.ws.send(JSON.stringify({ type:'ERROR', message: err.message }));
     }
   }
@@ -166,6 +184,7 @@ class TeamManager {
     if (!valid.includes(msg.newRole)) return;
 
     target.role = msg.newRole;
+    this._audit('role-changed', { by: me.name, target: target.name, newRole: msg.newRole });
     target.ws.send(JSON.stringify({ type:'AUTH_OK', token: msg.targetToken,
       role: msg.newRole, name: target.name,
       permissions: this._publicPermissions() }));
@@ -183,6 +202,7 @@ class TeamManager {
     if (!target || target.role === 'OWNER') return;
 
     target.ws.send(JSON.stringify({ type:'KICKED', message:'관리자에 의해 강퇴되었습니다.' }));
+    this._audit('client-kicked', { by: me.name, target: target.name, targetRole: target.role });
     target.ws.terminate();
     this.clients.delete(msg.targetToken);
     this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
@@ -194,6 +214,9 @@ class TeamManager {
     // OWNER 권한은 항상 고정
     ['ADMIN','MEMBER','VIEWER'].forEach(role => {
       if (perms[role]) this.roles[role] = perms[role];
+    });
+    this._audit('permissions-updated', {
+      roles: Object.fromEntries(['ADMIN', 'MEMBER', 'VIEWER'].map(role => [role, this.roles[role]])),
     });
     // 접속 중인 팀원들에게 갱신된 권한 + 버튼 상태 동기화
     for (const [tok, client] of this.clients) {
