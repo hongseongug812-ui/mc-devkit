@@ -7,12 +7,14 @@ const os   = require('os');
 const axios = require('axios');
 
 const PURPUR_API   = 'https://api.purpurmc.org/v2/purpur';
-const ADOPTIUM_API = 'https://api.adoptium.net/v3/binary/latest/21/ga';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
 const MOJANG_META  = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
 const ARCLIGHT_RELEASES = 'https://api.github.com/repos/IzzelAliz/Arclight/releases';
-const JRE_DIR      = path.join(os.homedir(), '.mc-devkit', 'jre');
+const JRE_ROOT     = path.join(os.homedir(), '.mc-devkit', 'jre');
+// 서버가 부팅 직후 뱉는 "Java N 이상 필요" 메시지 — MC 버전이 올라가며 요구치가 계속 바뀌므로
+// 하드코딩 대신 이 메시지를 실시간 감지해 필요한 메이저 버전으로 자동 전환한다.
+const JAVA_REQUIRED_RE = /requires\b[^.\n]*?\bjava\b[^.\n]*?\b(\d+)\b\s*(?:or (?:above|higher|newer)|\+)/i;
 
 class ServerManager {
   constructor(config, onLog, onCrash) {
@@ -31,61 +33,25 @@ class ServerManager {
     return path.join(this.config.serverDir, this.config.serverFolder || this.config.serverType || 'paper');
   }
 
-  // Adoptium 압축 해제 후 java 실행 파일 경로
+  // Adoptium 압축 해제 후 java 실행 파일 경로 (메이저 버전별 독립 폴더)
   // macOS 배포판은 .app 번들 구조(Contents/Home/bin/java)로 풀림, Win/Linux는 바로 bin/에 풀림
-  get _jreJavaExe() {
+  _jreJavaExe(major) {
+    const dir = path.join(JRE_ROOT, String(major));
     return process.platform === 'darwin'
-      ? path.join(JRE_DIR, 'Contents', 'Home', 'bin', 'java')
-      : path.join(JRE_DIR, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+      ? path.join(dir, 'Contents', 'Home', 'bin', 'java')
+      : path.join(dir, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
   }
 
-  // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────
-  async _ensureJava() {
-    if (this._javaPath) return this._javaPath;
-
-    // 0. 인스톨러에 번들된 JRE (배포 빌드 전용)
-    if (process.env.DEVKIT_RESOURCES) {
-      const bundled = path.join(process.env.DEVKIT_RESOURCES, 'jre', 'bin',
-        process.platform === 'win32' ? 'java.exe' : 'java');
-      if (await fs.pathExists(bundled)) {
-        this.onLog('[DevKit] 번들 JRE 21 사용');
-        this._javaPath = bundled;
-        return bundled;
-      }
-    }
-
-    // 1. 시스템 Java 확인
-    // Arclight(Forge 기반)은 Java 21까지만 안정 지원 → 초과 시 내부 JRE 21로 대체
-    const forgeType = this.config.serverType === 'arclight';
-    try {
-      const out   = execSync('java -version 2>&1', { encoding: 'utf8' });
-      const ver   = out.split('\n')[0];
-      const m     = ver.match(/"([\d.]+)"/);
-      if (m) {
-        const parts = m[1].split('.');
-        const major = parts[0] === '1' ? parseInt(parts[1]) : parseInt(parts[0]);
-        if (major < 17) {
-          this.onLog(`[DevKit] Java ${major} 감지 — Java 17 미만은 지원하지 않습니다. 내부 JRE 21로 대체합니다.`);
-        } else if (forgeType && major > 21) {
-          this.onLog(`[DevKit] Java ${major} 감지 — Arclight는 Java 21까지 지원합니다. 내부 JRE 21로 대체합니다.`);
-        } else {
-          this.onLog(`[DevKit] 시스템 Java ${major} 사용`);
-          this._javaPath = 'java';
-          return 'java';
-        }
-      }
-    } catch {}
-
-    // 2. 이전에 내려받은 JRE 재사용
-    const javaExe = this._jreJavaExe;
+  // ── Adoptium에서 특정 메이저 버전 JRE 다운로드 (캐시되어 있으면 재사용) ────────
+  async _downloadJre(major) {
+    const dir     = path.join(JRE_ROOT, String(major));
+    const javaExe = this._jreJavaExe(major);
     if (await fs.pathExists(javaExe)) {
-      this.onLog('[DevKit] 설치된 JRE 21 사용');
-      this._javaPath = javaExe;
+      this.onLog(`[DevKit] 설치된 JRE ${major} 사용`);
       return javaExe;
     }
 
-    // 3. Adoptium JRE 21 자동 다운로드
-    this.onLog('[DevKit] Java 미설치 — Adoptium JRE 21 자동 다운로드 시작...');
+    this.onLog(`[DevKit] Java ${major} 미설치 — Adoptium JRE ${major} 자동 다운로드 시작...`);
     this.onLog('[DevKit] (약 50 MB, 한 번만 다운로드됩니다)');
 
     const platformMap = { win32: 'windows', darwin: 'mac', linux: 'linux' };
@@ -93,7 +59,7 @@ class ServerManager {
     const plat = platformMap[process.platform] || 'linux';
     const arch = archMap[process.arch] || 'x64';
 
-    const url = `${ADOPTIUM_API}/${plat}/${arch}/jre/hotspot/normal/eclipse`;
+    const url = `https://api.adoptium.net/v3/binary/latest/${major}/ga/${plat}/${arch}/jre/hotspot/normal/eclipse`;
 
     const resp = await axios.get(url, {
       responseType: 'arraybuffer',
@@ -112,22 +78,67 @@ class ServerManager {
     });
 
     const ext     = process.platform === 'win32' ? 'zip' : 'tar.gz';
-    const tmpFile = path.join(os.tmpdir(), `adoptium-jre21.${ext}`);
+    const tmpFile = path.join(os.tmpdir(), `adoptium-jre${major}-${Date.now()}.${ext}`);
     await fs.writeFile(tmpFile, resp.data);
     this.onLog('[DevKit] 다운로드 완료. 압축 해제 중...');
 
-    await fs.ensureDir(JRE_DIR);
-    execSync(`tar -xf "${tmpFile}" -C "${JRE_DIR}" --strip-components=1`);
+    await fs.ensureDir(dir);
+    execSync(`tar -xf "${tmpFile}" -C "${dir}" --strip-components=1`);
     await fs.remove(tmpFile);
 
     if (!await fs.pathExists(javaExe)) {
-      throw new Error('JRE 압축 해제 실패. 수동으로 Java를 설치해주세요.');
+      throw new Error(`JRE ${major} 압축 해제 실패. 수동으로 Java를 설치해주세요.`);
     }
 
     // Unix 실행 권한
     if (process.platform !== 'win32') fs.chmodSync(javaExe, 0o755);
 
-    this.onLog('[DevKit] Java JRE 21 설치 완료 ✓');
+    this.onLog(`[DevKit] Java JRE ${major} 설치 완료 ✓`);
+    return javaExe;
+  }
+
+  // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────
+  // forcedMajor: 이전 실행에서 "Java N 이상 필요" 메시지를 감지한 경우 그 버전을 강제
+  async _ensureJava(forcedMajor = null) {
+    if (this._javaPath && !forcedMajor) return this._javaPath;
+
+    // 0. 인스톨러에 번들된 JRE (배포 빌드 전용, 번들은 21 고정이라 강제 버전 요청 시엔 건너뜀)
+    if (!forcedMajor && process.env.DEVKIT_RESOURCES) {
+      const bundled = path.join(process.env.DEVKIT_RESOURCES, 'jre', 'bin',
+        process.platform === 'win32' ? 'java.exe' : 'java');
+      if (await fs.pathExists(bundled)) {
+        this.onLog('[DevKit] 번들 JRE 21 사용');
+        this._javaPath = bundled;
+        return bundled;
+      }
+    }
+
+    // 1. 시스템 Java 확인
+    // Arclight(Forge 기반)은 Java 21까지만 안정 지원 → 초과 시 내부 JRE로 대체
+    const forgeType = this.config.serverType === 'arclight';
+    try {
+      const out   = execSync('java -version 2>&1', { encoding: 'utf8' });
+      const ver   = out.split('\n')[0];
+      const m     = ver.match(/"([\d.]+)"/);
+      if (m) {
+        const parts = m[1].split('.');
+        const major = parts[0] === '1' ? parseInt(parts[1]) : parseInt(parts[0]);
+        const minRequired = forcedMajor || 17;
+        if (major < minRequired) {
+          this.onLog(`[DevKit] Java ${major} 감지 — 이 서버는 Java ${minRequired} 이상이 필요합니다. 내부 JRE로 대체합니다.`);
+        } else if (forgeType && major > 21) {
+          this.onLog(`[DevKit] Java ${major} 감지 — Arclight는 Java 21까지 지원합니다. 내부 JRE 21로 대체합니다.`);
+        } else {
+          this.onLog(`[DevKit] 시스템 Java ${major} 사용`);
+          this._javaPath = 'java';
+          return 'java';
+        }
+      }
+    } catch {}
+
+    // 2/3. 내부 JRE 확보 (캐시 재사용 또는 Adoptium 다운로드) — 강제 버전 없으면 기본 21
+    const wantMajor = forcedMajor || 21;
+    const javaExe = await this._downloadJre(wantMajor);
     this._javaPath = javaExe;
     return javaExe;
   }
@@ -566,15 +577,18 @@ class ServerManager {
   }
 
   // ── 서버 시작 (완전 자동) ──────────────────────────────────────────────────
-  async start() {
+  // forcedJavaMajor: "Java N 이상 필요" 메시지 감지 후 자동 재시작할 때만 내부적으로 사용
+  async start(forcedJavaMajor = null) {
     if (this.status !== 'stopped') throw new Error('서버가 이미 실행 중입니다.');
     this.status    = 'starting';
     this._stopping = false;
+    this._javaRetryHandled = false;
+    if (!forcedJavaMajor) this._javaRetryCount = 0;
 
     await this._killOrphan();
 
     try {
-      const javaPath = await this._ensureJava();
+      const javaPath = await this._ensureJava(forcedJavaMajor);
       await fs.ensureDir(this._dir);
       this.onLog(`[DevKit] 실행 구성: type=${this.config.serverType}, version=${this.config.version}, memory=${this.config.memory}, dir=${this._dir}, java=${javaPath}`);
       await fs.writeFile(path.join(this._dir, 'eula.txt'), 'eula=true\n');
@@ -659,9 +673,26 @@ class ServerManager {
       this.onLog(`[DevKit] 프로세스 오류: ${err.message}`);
     });
 
+    const checkJavaRequirement = (line) => {
+      if (this._javaRetryHandled) return;
+      const jm = line.match(JAVA_REQUIRED_RE);
+      if (!jm) return;
+      const need = parseInt(jm[1], 10);
+      if ((this._javaRetryCount || 0) >= 2) {
+        this.onLog(`[DevKit] Java ${need} 자동 전환을 이미 시도했지만 계속 실패합니다 — 수동 확인이 필요합니다.`);
+        return;
+      }
+      this._javaRetryHandled = true;
+      this._javaRetryMajor   = need;
+      this._javaRetryCount   = (this._javaRetryCount || 0) + 1;
+      this.onLog(`[DevKit] Java ${need} 이상 필요 감지 — 내부 JRE ${need}로 자동 전환 후 재시작합니다.`);
+      this.process?.kill();
+    };
+
     this.process.stdout.on('data', (data) => {
       data.toString().split('\n').filter(Boolean).forEach(line => {
         this.onLog(line, 'stdout');
+        checkJavaRequirement(line);
         if (line.includes('Done') && line.includes('For help')) {
           this.status = 'running';
           this.onLog('[DevKit] 서버 준비 완료 ✓');
@@ -670,10 +701,19 @@ class ServerManager {
     });
 
     this.process.stderr.on('data', (data) => {
-      data.toString().split('\n').filter(Boolean).forEach(l => this.onLog(l, 'stderr'));
+      data.toString().split('\n').filter(Boolean).forEach(l => { this.onLog(l, 'stderr'); checkJavaRequirement(l); });
     });
 
     this.process.on('exit', (code) => {
+      if (this._javaRetryHandled) {
+        this.status  = 'stopped';
+        this.process = null;
+        this.onLog(`[DevKit] 서버 종료됨 (exit code: ${code})`);
+        const major = this._javaRetryMajor;
+        this.start(major).catch(e => this.onLog(`[DevKit] Java ${major} 재시작 실패: ${e.message}`));
+        return;
+      }
+
       const crashed = !this._stopping && this.status !== 'stopping' && code !== 0 && code !== null;
       this.status  = 'stopped';
       this.process = null;
