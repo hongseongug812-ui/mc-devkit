@@ -75,6 +75,7 @@ class PlayitManager {
 
   async start() {
     if (this.process) throw new Error('playit이 이미 실행 중입니다.');
+    this._stopped = false;
 
     const bin = await this._ensureInstalled();
     this.onLog('[DevKit] playit 터널 시작 중...');

@@ -17,6 +17,9 @@ class TeamManager {
     this.clients    = new Map();   // token → { ws, name, role }
     this.ownerToken = uuidv4();
     this.roles      = JSON.parse(JSON.stringify(DEFAULT_ROLES));  // 복사본
+    // token → role. 연결이 끊겨도(clients에서는 삭제됨) 유지되어, 재접속 시
+    // OWNER가 부여한 역할(ADMIN 승격/VIEWER 강등)이 MEMBER로 초기화되지 않게 한다.
+    this._tokenRoles = new Map();
     this._logBuf    = [];
     this._logFlush  = null;
 
@@ -88,17 +91,21 @@ class TeamManager {
   // ── 인증 ────────────────────────────────────────────────────────────────────
   _handleAuth(ws, msg) {
     const { name, token: provided } = msg;
-    let role  = 'MEMBER';
-    let token = provided || uuidv4();
+    let role, token;
 
     if (provided === this.ownerToken) {
       role  = 'OWNER';
       token = provided;
-    } else if (!provided) {
+    } else if (provided && this._tokenRoles.has(provided)) {
+      // 재접속 — 끊기기 전 부여받은 역할을 그대로 복원 (MEMBER로 초기화하지 않음)
+      role  = this._tokenRoles.get(provided);
+      token = provided;
+    } else {
       role  = 'MEMBER';
-      token = uuidv4();
+      token = provided || uuidv4();
     }
 
+    this._tokenRoles.set(token, role);
     this.clients.set(token, { ws, name: name || `User_${token.slice(0,4)}`, role, alive: true });
     this._audit('client-authenticated', { name: name || 'anonymous', role });
     ws.send(JSON.stringify({ type:'AUTH_OK', token, role, name,
@@ -184,6 +191,7 @@ class TeamManager {
     if (!valid.includes(msg.newRole)) return;
 
     target.role = msg.newRole;
+    this._tokenRoles.set(msg.targetToken, msg.newRole);
     this._audit('role-changed', { by: me.name, target: target.name, newRole: msg.newRole });
     target.ws.send(JSON.stringify({ type:'AUTH_OK', token: msg.targetToken,
       role: msg.newRole, name: target.name,
@@ -205,6 +213,8 @@ class TeamManager {
     this._audit('client-kicked', { by: me.name, target: target.name, targetRole: target.role });
     target.ws.terminate();
     this.clients.delete(msg.targetToken);
+    // 강퇴된 토큰의 부여 역할은 제거 — 같은 토큰으로 재접속해도 다시 MEMBER부터 시작
+    this._tokenRoles.delete(msg.targetToken);
     this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
     this.broadcast({ type:'ACTION_LOG', message:`${me.name}이(가) ${target.name}을(를) 강퇴` });
   }
