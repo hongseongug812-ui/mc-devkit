@@ -147,11 +147,15 @@ class BuildWatcher {
 
     this.onLog(`[DevKit] 파일 감시 시작 → ${watchPath}`);
 
-    const serverDirAbs = path.resolve(this.config.serverDir);
+    // chokidar는 Windows에서도 슬래시(/)로 정규화된 경로를 넘겨주므로,
+    // 백슬래시 기반 문자열(path.resolve/path.sep)과 그대로 비교하면 절대 안 걸러진다 —
+    // 양쪽 다 슬래시로 통일해서 비교한다.
+    const toSlash = (s) => s.replace(/\\/g, '/');
+    const serverDirNorm = toSlash(path.resolve(this.config.serverDir));
     this.watcher = chokidar.watch(watchPath, {
       ignored: [
         /(node_modules|\.git|build|\.gradle|out)(\/|\\|$)/,
-        (p) => p.startsWith(serverDirAbs + path.sep) || p === serverDirAbs,
+        (p) => { const pn = toSlash(p); return pn === serverDirNorm || pn.startsWith(serverDirNorm + '/'); },
       ],
       persistent: true,
       ignoreInitial: true,
