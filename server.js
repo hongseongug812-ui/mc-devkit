@@ -55,6 +55,8 @@ const CONFIG = {
   rconPassword: process.env.RCON_PASSWORD || 'devkit_' + Math.random().toString(36).slice(2),
   buildCmd:     _saved.buildCmd     || process.env.BUILD_CMD     || null,
   playitSecret: _saved.playitSecret || process.env.PLAYIT_SECRET || null,
+  // 'playit' (자동 터널) | 'portforward' (공유기 포트포워딩 — 서버 실행 시 playit 자동시작 안 함)
+  connectionMode: _saved.connectionMode || 'playit',
 };
 
 // 프로필별 독립 폴더 계산 (server-manager와 동일 로직)
@@ -63,7 +65,15 @@ function activeServerDir() {
 }
 
 // ── 상태 ──────────────────────────────────────────────────────────────────
-const state = { serverStatus: 'stopped', tunnelUrl: null, mcAddress: null, players: [], tps: null };
+// mcAddressSource: 'playit'(터널이 자동으로 채움, 서버 종료 시 초기화) | 'manual'(직접 입력, 종료해도 유지)
+const state = { serverStatus: 'stopped', tunnelUrl: null, mcAddress: null, mcAddressSource: null, players: [], tps: null };
+
+// MC 서버 주소를 설정하는 유일한 경로 — 항상 여기를 거쳐야 mcAddressSource가 어긋나지 않는다
+function setMcAddress(addr, source) {
+  state.mcAddress       = addr || null;
+  state.mcAddressSource = addr ? source : null;
+  teamManager?.broadcast({ type: 'MC_ADDRESS', address: state.mcAddress });
+}
 let teamManager = null;
 
 function inferLogLevel(line, source) {
@@ -117,16 +127,16 @@ const serverManager = new ServerManager(
 
       if (s === 'stopped') {
         state.players = [];
-        // 서버 종료 시 ngrok도 중지 + 주소 초기화
+        // 서버 종료 시 playit도 중지 — 직접 입력한 주소(포트포워딩)는 종료해도 유지
         if (ngrokManager.isRunning()) ngrokManager.stop();
-        state.mcAddress = null;
-        teamManager?.broadcast({ type: 'MC_ADDRESS', address: null });
+        if (state.mcAddressSource !== 'manual') setMcAddress(null, null);
       }
 
       teamManager?.broadcastStatus(s, state.tunnelUrl);
       teamManager?.broadcast({ type: 'PLAYERS_UPDATE', players: state.players });
 
-      if (s === 'running' && !ngrokManager.isRunning()) {
+      // 포트포워딩 모드에서는 playit을 자동으로 켜지 않는다
+      if (s === 'running' && !ngrokManager.isRunning() && CONFIG.connectionMode !== 'portforward') {
         ngrokManager.start().catch(e =>
           publishLog(`[DevKit] ngrok 자동 시작 실패: ${e.message}`, 'playit')
         );
@@ -155,7 +165,7 @@ const tunnelManager = new TunnelManager(
 const ngrokManager = new PlayitManager(
   (line) => publishLog(line, 'playit'),
   (url)  => { teamManager?.broadcast({ type: 'PLAYIT_CLAIM', url }); },
-  (addr) => { state.mcAddress = addr; teamManager?.broadcast({ type: 'MC_ADDRESS', address: addr }); }
+  (addr) => setMcAddress(addr, 'playit')
 );
 
 // REST API 권한 체크 미들웨어
@@ -279,7 +289,7 @@ function startServer(port) {
     app.post('/api/tunnel/stop',    (_, res)        => { tunnelManager.stop(); res.json({ ok: true }); });
 
     app.post('/api/config', (req, res) => {
-      const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder } = req.body;
+      const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder, connectionMode } = req.body;
       if (projectDir)   { CONFIG.projectDir  = projectDir;  buildWatcher.config.projectDir = projectDir; }
       if (pluginName)   { CONFIG.pluginName   = pluginName;  buildWatcher.config.pluginName = pluginName; }
       if (serverDir)    { CONFIG.serverDir    = serverDir;   serverManager.config.serverDir = serverDir; buildWatcher.config.serverDir = serverDir; }
@@ -288,10 +298,26 @@ function startServer(port) {
       if (buildCmd !== undefined) { CONFIG.buildCmd = buildCmd; buildWatcher.config.buildCmd = buildCmd || null; }
       if (serverType)   { CONFIG.serverType   = serverType;  serverManager.config.serverType   = serverType; buildWatcher.config.serverType = serverType; }
       if (serverFolder !== undefined) { CONFIG.serverFolder = serverFolder; serverManager.config.serverFolder = serverFolder || null; buildWatcher.config.serverFolder = serverFolder || null; }
+      if (connectionMode === 'playit' || connectionMode === 'portforward') {
+        CONFIG.connectionMode = connectionMode;
+        // 포트포워딩으로 전환 — 켜져 있던 playit 터널은 더 이상 UI로 끌 수 없으므로 여기서 정리
+        if (connectionMode === 'portforward' && ngrokManager.isRunning()) ngrokManager.stop();
+        if (connectionMode === 'portforward' && state.mcAddressSource === 'playit') setMcAddress(null, null);
+      }
       saveConfig();
       res.json({ ok: true, config: CONFIG });
     });
     app.get('/api/config', (_, res) => res.json({ ...CONFIG, appVersion: APP_VERSION }));
+
+    // ── 공인 IP 조회 (포트포워딩 모드에서 주소 자동 채우기용) ──────────────────
+    app.get('/api/public-ip', async (_, res) => {
+      try {
+        const { data } = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+        res.json({ ip: data.ip });
+      } catch (e) {
+        res.status(500).json({ error: '공인 IP 조회 실패 — 직접 입력해주세요.' });
+      }
+    });
 
     // ── 서버 프로필 ───────────────────────────────────────────────────────────
     const PROFILES_FILE = path.join(os.homedir(), '.mc-devkit', 'profiles.json');
@@ -324,6 +350,7 @@ function startServer(port) {
           projectDir:   CONFIG.projectDir,
           pluginName:   CONFIG.pluginName,
           buildCmd:     CONFIG.buildCmd,
+          connectionMode: CONFIG.connectionMode,
           image:        image !== undefined ? image : (existing?.image || null),
         };
         saveProfiles(profiles);
@@ -397,6 +424,10 @@ function startServer(port) {
       if (p.projectDir)   { CONFIG.projectDir   = p.projectDir;   buildWatcher.config.projectDir    = p.projectDir; }
       if (p.pluginName)   { CONFIG.pluginName   = p.pluginName;   buildWatcher.config.pluginName    = p.pluginName; }
       if (p.buildCmd !== undefined) { CONFIG.buildCmd = p.buildCmd; buildWatcher.config.buildCmd    = p.buildCmd || null; }
+      CONFIG.connectionMode = (p.connectionMode === 'portforward') ? 'portforward' : 'playit';
+      // 접속 주소는 이전 프로필 것 — 새 프로필로 전환하면 무효이므로 초기화
+      if (ngrokManager.isRunning()) ngrokManager.stop();
+      setMcAddress(null, null);
       // 저장된 serverFolder 복원; 없으면 프로필 이름으로 자동 생성
       const folder = p.serverFolder || sanitizeFolder(name);
       CONFIG.serverFolder = folder;
@@ -492,8 +523,7 @@ function startServer(port) {
     // ── MC 서버 주소 ──────────────────────────────────────────────────────
     app.get('/api/mc-address', (_, res) => res.json({ address: state.mcAddress }));
     app.post('/api/mc-address', (req, res) => {
-      state.mcAddress = req.body.address || null;
-      teamManager?.broadcast({ type: 'MC_ADDRESS', address: state.mcAddress });
+      setMcAddress(req.body.address || null, 'manual');
       res.json({ ok: true });
     });
 

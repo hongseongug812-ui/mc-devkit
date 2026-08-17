@@ -412,17 +412,18 @@ class ServerManager {
       return re.test(props) ? props.replace(re, `${key}=${val}`) : props + `\n${key}=${val}`;
     };
 
-    // 필수 설정
+    // 필수 설정 — RCON은 devkit 동작에 필요하므로 항상 강제
     props = set('enable-rcon',   'true');
     props = set('rcon.port',     '25575');
     props = set('rcon.password', this.config.rconPassword);
-    props = set('online-mode',   'true');
 
-    // 핑·TPS 최적화 (이미 설정된 경우 덮어쓰지 않음)
+    // 핑·TPS 최적화 + online-mode (이미 설정된 경우, 즉 사용자가 설정 탭에서
+    // 바꿔둔 값이 있으면 덮어쓰지 않음 — 오프라인 클라이언트 테스트 등)
     const setIfNew = (key, val) => {
       const re = new RegExp(`^${key}=`, 'm');
       if (!re.test(props)) props = props + `\n${key}=${val}`;
     };
+    setIfNew('online-mode',                 'true');
     setIfNew('view-distance',               '6');   // 청크 거리 축소 → TPS↑
     setIfNew('simulation-distance',         '4');   // 엔티티 시뮬 범위 축소 → TPS↑
     setIfNew('network-compression-threshold','256'); // 소형 패킷 압축 스킵 → 핑↓
@@ -674,7 +675,9 @@ class ServerManager {
     });
 
     const checkJavaRequirement = (line) => {
-      if (this._javaRetryHandled) return;
+      // 부팅 중(아직 'running' 전)에만 감지 — 런타임에 플러그인/모드가 우연히
+      // 비슷한 문구를 찍어도(예: 선택 기능용 "Java 21+ 필요") 실행 중인 서버를 죽이지 않는다
+      if (this._javaRetryHandled || this.status === 'running') return;
       const jm = line.match(JAVA_REQUIRED_RE);
       if (!jm) return;
       const need = parseInt(jm[1], 10);
