@@ -288,6 +288,10 @@ async function updateServerRuntime() {
 }
 
 if (isElectron) {
+  window.devkit.onUpdateStatus(status=>{
+    if(status==='downloading')showToast('앱 업데이트를 자동 다운로드하고 있습니다.');
+    if(status==='ready')showToast('자동 업데이트 준비 완료. 작업을 끝내고 창을 닫아 트레이로 보내면 설치 후 재실행합니다.');
+  });
   window.devkit.syncList().then(renderSubscriptions).catch(e => showToast(e.message, true));
   window.devkit.onSyncChanged(renderSubscriptions);
 }

@@ -956,4 +956,14 @@ function safeRun(res, fn) {
 }
 
 function getState() { return state; }
-module.exports = { startServer, getState, getOwnerToken: () => teamManager?.getOwnerToken() };
+async function isUpdateIdle() {
+  const busy=()=>serverManager.getStatus()!=='stopped' || buildWatcher.building || packPublisher.locks.size || tunnelManager.getUrl() || tunnelManager.process || ngrokManager.isRunning() || teamManager?.clients.size>1;
+  if(busy())return false;
+  const ids=await fs.readdir(packPublisher.root).catch(e=>{if(e.code==='ENOENT')return [];throw e;});
+  for(const id of ids)if(/^[a-f0-9]{32}$/.test(id)) {
+    const channel=await packPublisher.readChannel(id);
+    if(channel.mode==='filming')return false;
+  }
+  return !busy();
+}
+module.exports = { startServer, getState, isUpdateIdle, getOwnerToken: () => teamManager?.getOwnerToken() };

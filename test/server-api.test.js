@@ -12,7 +12,7 @@ test('real HTTP distribution authenticates downloads and protects management ope
   process.env.DEVKIT_DATA_DIR = root;
   const servers = path.join(root,'servers');
   await fs.writeJson(path.join(root,'config.json'), { serverDir:servers, serverFolder:'shoot', projectDir:path.join(root,'project'), serverType:'fabric', paperVersion:'26.3', memory:'2G' });
-  const { startServer, getOwnerToken } = require('../server');
+  const { startServer, getOwnerToken, isUpdateIdle } = require('../server');
   const server = await startServer(0);
   t.after(async () => { await server.shutdown(); await fs.remove(root); });
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -46,6 +46,10 @@ test('real HTTP distribution authenticates downloads and protects management ope
   const downloadHeaders={'X-Pack-Token':token,'X-DevKit-Version':'1.9.0','Content-Type':'application/json'};
   assert.equal((await request(`/api/packs/${id}/manifest`,{headers:downloadHeaders})).status,404);
   assert.equal((await request('/api/modpack/promote',{method:'POST',headers,body:JSON.stringify({id,revision:pack.data.pending.manifest.revision})})).status,200);
+  assert.equal(await isUpdateIdle(),true);
+  assert.equal((await request('/api/modpack/mode',{method:'POST',headers,body:JSON.stringify({id,mode:'filming'})})).status,200);
+  assert.equal(await isUpdateIdle(),false);
+  await request('/api/modpack/mode',{method:'POST',headers,body:JSON.stringify({id,mode:'review'})});
   assert.equal((await request(`/api/packs/${id}/manifest`,{headers:{'X-Pack-Token':token}})).status,426);
   const manifest=await request(`/api/packs/${id}/manifest`,{headers:downloadHeaders});
   assert.equal(manifest.status,200);

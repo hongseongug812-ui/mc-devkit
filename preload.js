@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('devkit', {
     ipcRenderer.on('sync-changed', listener);
     return () => ipcRenderer.removeListener('sync-changed', listener);
   },
+  onUpdateStatus:(callback)=>{
+    const listener=(_,status)=>callback(status);ipcRenderer.on('update-status',listener);
+    return ()=>ipcRenderer.removeListener('update-status',listener);
+  },
 
   // 외부 브라우저로 URL 열기
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

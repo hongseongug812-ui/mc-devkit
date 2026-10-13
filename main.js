@@ -4,10 +4,12 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell } = 
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const os = require('os');
-const { startServer, getState, getOwnerToken }  = require('./server');
+const { startServer, getState, getOwnerToken, isUpdateIdle }  = require('./server');
 const { ModSync } = require('./core/mod-sync');
 const { discoverProfiles } = require('./core/launcher-profiles');
 const { openLauncher } = require('./core/game-launcher');
+const { gameRunning } = require('./core/game-process');
+const AutomaticUpdates = require('./core/automatic-updates');
 
 const isDev = process.argv.includes('--dev');
 
@@ -32,6 +34,7 @@ let manualCheckPending = false;  // 수동 "업데이트 확인" 클릭 시에�
 let syncManager = null;
 let quitReady = false;
 let shutdownPending = false;
+let automaticUpdates = null;
 
 // ── 메인 윈도우 생성 ────────────────────────────────────────────────────────
 function createWindow() {
@@ -69,6 +72,7 @@ function createWindow() {
     if (isQuitting) return;  // 인스톨러/완전종료 시 그냥 닫힘
     e.preventDefault();
     win.hide();
+    automaticUpdates?.attemptInstall().catch(()=>{});
   });
 }
 
@@ -102,6 +106,7 @@ function createTray() {
 // ── IPC 핸들러 (renderer → main) ───────────────────────────────────────────
 function registerIpc() {
   const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => {
+    if(shutdownPending)throw Error('앱 종료 또는 자동 업데이트를 진행하고 있습니다.');
     if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame
       || new URL(event.senderFrame.url).origin !== `http://localhost:${PORT}`) throw new Error('로컬 앱에서만 사용할 수 있습니다.');
     return fn(event, ...args);
@@ -173,7 +178,10 @@ function registerIpc() {
     if (manualCheckPending) return;
     manualCheckPending = true;
     try {
-      await autoUpdater.checkForUpdates();
+      if(automaticUpdates?.ready) {
+        manualCheckPending=false;
+        dialog.showMessageBox(win,{type:'info',title:'자동 업데이트 준비 완료',message:'서버·게임·촬영 모드·터널을 종료하고 창을 닫아 트레이로 보내면 자동 설치 후 재실행합니다.',buttons:['확인']});
+      }else await automaticUpdates.check();
     } catch (e) {
       const showError = manualCheckPending;
       manualCheckPending = false;
@@ -205,14 +213,21 @@ app.whenReady().then(async () => {
 
   // 자동 업데이트 (배포 빌드에서만)
   if (app.isPackaged) {
-    autoUpdater.on('update-available', () => {
-      manualCheckPending = false;
-      dialog.showMessageBox(win, {
-        type: 'info',
-        title: 'MC DevKit 업데이트',
-        message: '새 버전이 있습니다. 백그라운드에서 다운로드합니다.',
-        buttons: ['확인'],
-      });
+    automaticUpdates=new AutomaticUpdates(autoUpdater,{
+      isIdle:async()=>{
+        if(shutdownPending || win.isVisible() || syncManager.locks.size || !await isUpdateIdle() || await gameRunning())return false;
+        const stillIdle=await isUpdateIdle();
+        return stillIdle && !shutdownPending && !win.isVisible() && !syncManager.locks.size;
+      },
+      beforeInstall:async()=>{
+        isQuitting=true;shutdownPending=true;
+        await Promise.all([syncManager.close(),server.shutdown()]);quitReady=true;automaticUpdates.close();
+      },
+      onStatus:status=>{
+        if(status==='downloading')manualCheckPending=false;
+        if(win && !win.isDestroyed())win.webContents.send('update-status',status);
+        if(status==='ready')tray?.setToolTip('MC DevKit · 자동 업데이트 준비 완료');
+      }
     });
 
     // 수동으로 확인 버튼을 눌렀을 때만 "최신 버전입니다" 팝업 표시
@@ -235,17 +250,7 @@ app.whenReady().then(async () => {
       });
     });
 
-    autoUpdater.on('update-downloaded', () => {
-      dialog.showMessageBox(win, {
-        type: 'question',
-        title: '업데이트 준비 완료',
-        message: '새 버전 다운로드 완료. 지금 재시작하여 업데이트하시겠습니까?',
-        buttons: ['재시작', '나중에'],
-      }).then(({ response }) => {
-        if (response === 0) autoUpdater.quitAndInstall();
-      });
-    });
-    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    automaticUpdates.start();
   }
 });
 
@@ -268,6 +273,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (shutdownPending) return;
   shutdownPending = true;
+  automaticUpdates?.close();
   Promise.resolve(syncManager?.close()).finally(() => {
     Promise.resolve(server?.shutdown()).finally(() => {
       quitReady = true;
