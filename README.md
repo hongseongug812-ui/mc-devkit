@@ -7,11 +7,11 @@
 
 ## 주요 기능
 
-- **콘텐츠 팀 모드팩 동기화** — 서버·게임 버전별 참가 링크, 참가자 모드 자동 교체, 해시 검증·백업·게임 종료 후 적용 ([사용법](docs/modpack-sync.md))
+- **콘텐츠 팀 모드팩 동기화** — 승인 배포·촬영 고정·이전 배포 복원, 참가자 게임 시작 전 모드·공용 설정 자동 적용, 준비 현황 ([사용법](docs/modpack-sync.md))
 - **Studio UI** — 서버 카드, 넓은 설정 화면, 모드팩 배포와 참가 서버 관리
 - **최신 서버 버전 대응** — 종류별 릴리스 목록 새로고침, Paper 안정 빌드 검증, Minecraft 26.x Java 25 자동 준비
 
-- **서버 관리** — Fabric / Paper / Vanilla 지원, 원클릭 시작·중지·재시작
+- **서버 관리** — Paper / Fabric / Forge / NeoForge / Vanilla / Arclight / Cardboard, 종류별 공식 버전·로더 조회와 원클릭 시작·중지·재시작
 - **외부 접속** — playit.gg 연동, 포트포워딩 없이 외부 접속 가능 (무료)
 - **팀 관리** — Owner / Admin / Member / Viewer 권한 분리, 동시 접속 지원
   신규 멤버는 기본적으로 서버 제어 권한이 없으며 호스트가 권한을 부여합니다.
@@ -25,7 +25,7 @@
 
 ## 다운로드
 
-[MC DevKit v1.8.0 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.8.0/MC-DevKit-Setup-1.8.0.exe)
+[MC DevKit v1.9.0 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.9.0/MC-DevKit-Setup-1.9.0.exe)
 
 > Windows 전용 / 설치 후 바탕화면 MC DevKit 실행
 
@@ -52,9 +52,9 @@
 
 ### 멤버 (접속하는 사람)
 
-1. Minecraft Java 실행
-2. 멀티플레이 → 서버 추가
-3. 호스트에게 받은 주소 입력 후 접속
+1. MC DevKit의 서버 참가에서 호스트의 참가 링크와 게임 프로필 연결
+2. 참가 서버의 **게임 시작 · 자동 적용** 클릭 → 적용 완료 후 런처에서 연결한 프로필의 플레이 클릭
+3. 멀티플레이 → 서버 추가 → 호스트에게 받은 Minecraft 접속 주소로 접속
 
 ---
 

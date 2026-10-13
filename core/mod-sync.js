@@ -6,10 +6,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { gameRunning } = require('./game-process');
 const { MAX_FILE, MAX_PACK, hashFile, validName, regularFile, safeDirectory,
-  validateManifest, writeJsonAtomic } = require('./pack-utils');
-
-const STATE = '.mc-devkit-sync.json';
-const JOURNAL = '.mc-devkit-transaction.json';
+  validateManifest, writeJsonAtomic, packPath } = require('./pack-utils');
 
 function parseInvite(invite) {
   const url = new URL(invite);
@@ -20,128 +17,21 @@ function parseInvite(invite) {
   return { id, token, origin: url.origin };
 }
 
-async function readState(modsDir) {
-  const file = path.join(modsDir, STATE);
-  if (!await fs.pathExists(file)) return null;
-  await regularFile(file);
-  return validateManifest(await fs.readJson(file));
-}
-
-async function rollback(modsDir, journal) {
-  if (!/^[a-f0-9]{32}$/.test(journal.backup) || !Array.isArray(journal.files) || journal.files.length > 1000
-    || journal.files.some(f => !validName(f.name) || typeof f.existed !== 'boolean')) throw new Error('복구 기록을 확인할 수 없습니다. 백업 폴더를 확인하세요.');
-  const backupDir = await safeDirectory(path.join(modsDir, '.mc-devkit-backups', journal.backup));
-  for (const file of journal.files) {
-    const dest = path.join(modsDir, file.name);
-    if (await fs.pathExists(dest)) await regularFile(dest);
-    if (file.existed) {
-      const source = path.join(backupDir, file.name);
-      await regularFile(source);
-      await fs.copyFile(source, dest);
-    } else await fs.remove(dest);
-  }
-  if (journal.before) await writeJsonAtomic(path.join(modsDir, STATE), validateManifest(journal.before));
-  else await fs.remove(path.join(modsDir, STATE));
-  await fs.remove(path.join(modsDir, JOURNAL));
-}
-
-async function installManifest(modsDir, manifest, download, isRunning = gameRunning) {
-  validateManifest(manifest);
-  modsDir = await safeDirectory(modsDir, true);
-  if (await isRunning()) return { status: 'waiting', message: 'Minecraft를 종료하면 자동으로 적용됩니다.' };
-  if (await fs.pathExists(path.join(modsDir, JOURNAL))) {
-    await regularFile(path.join(modsDir, JOURNAL));
-    await rollback(modsDir, await fs.readJson(path.join(modsDir, JOURNAL)));
-  }
-  const before = await readState(modsDir);
-  if (before && before.id !== manifest.id) throw new Error('다른 서버의 모드팩이 연결된 게임 폴더입니다. 별도 게임 인스턴스를 선택하세요.');
-  const oldFiles = new Map((before?.files || []).map(f => [f.name.toLowerCase(), f]));
-  const newFiles = new Map(manifest.files.map(f => [f.name.toLowerCase(), f]));
-  const changed = [];
-  const removed = [];
-  const existingNames = new Map((await fs.readdir(modsDir)).map(n => [n.toLowerCase(), n]));
-  for (const file of manifest.files) {
-    const actualName = existingNames.get(file.name.toLowerCase());
-    if (actualName && actualName !== file.name) throw new Error(`대소문자가 다른 파일이 있습니다: ${actualName}. 파일명을 정리하세요.`);
-    const dest = path.join(modsDir, file.name);
-    if (actualName) {
-      await regularFile(dest);
-      const hash = await hashFile(dest);
-      // An existing unmanaged mod is never adopted or overwritten implicitly.
-      if (!oldFiles.has(file.name.toLowerCase())) throw new Error(`기존 개인 모드와 이름이 겹칩니다: ${file.name}. 새 게임 인스턴스를 사용하거나 해당 파일을 옮겨주세요.`);
-      if (hash !== oldFiles.get(file.name.toLowerCase()).sha256) throw new Error(`직접 수정된 모드를 보호하기 위해 중지했습니다: ${file.name}. 파일을 다른 곳에 옮기고 다시 동기화하세요.`);
-      if (hash === file.sha256) continue;
-    }
-    changed.push(file);
-  }
-  for (const file of before?.files || []) {
-    if (newFiles.has(file.name.toLowerCase())) continue;
-    const dest = path.join(modsDir, file.name);
-    if (await fs.pathExists(dest)) {
-      await regularFile(dest);
-      if (await hashFile(dest) !== file.sha256) throw new Error(`직접 수정된 모드를 보호하기 위해 중지했습니다: ${file.name}`);
-      removed.push(file);
-    }
-  }
-  if (!changed.length && !removed.length && before?.revision === manifest.revision) {
-    return { status: 'current', message: '최신 모드팩입니다.', revision: manifest.revision };
-  }
-  const stage = path.join(modsDir, `.mc-devkit-stage-${crypto.randomBytes(16).toString('hex')}`);
-  await fs.mkdir(stage);
-  try {
-    let total = 0;
-    for (const file of changed) {
-      const data = await download(file);
-      total += data.length;
-      if (data.length !== file.size || data.length > MAX_FILE || total > MAX_PACK) throw new Error(`다운로드 크기가 일치하지 않습니다: ${file.name}`);
-      const target = path.join(stage, file.name);
-      await fs.writeFile(target, data);
-      if (await hashFile(target) !== file.sha256) throw new Error(`다운로드 검증 실패: ${file.name}`);
-    }
-    if (await isRunning()) return { status: 'waiting', message: '게임이 실행되어 적용을 보류했습니다. 종료 후 다시 확인합니다.' };
-    // Re-check managed files after downloading; users may have edited them while it ran.
-    for (const file of [...changed, ...removed]) {
-      const dest = path.join(modsDir, file.name);
-      const old = oldFiles.get(file.name.toLowerCase());
-      if (await fs.pathExists(dest)) {
-        await regularFile(dest);
-        if (!old || await hashFile(dest) !== old.sha256) throw new Error(`다운로드 중 파일이 변경됐습니다: ${file.name}`);
-      }
-    }
-    const backup = crypto.randomBytes(16).toString('hex');
-    const backupDir = await safeDirectory(path.join(modsDir, '.mc-devkit-backups', backup), true);
-    const journal = { backup, before, files: [] };
-    for (const file of [...changed, ...removed]) {
-      const dest = path.join(modsDir, file.name);
-      const existed = await fs.pathExists(dest);
-      if (existed) await fs.copyFile(dest, path.join(backupDir, file.name));
-      journal.files.push({ name: file.name, existed });
-    }
-    await writeJsonAtomic(path.join(backupDir, 'previous-manifest.json'), before);
-    await writeJsonAtomic(path.join(modsDir, JOURNAL), journal);
-    try {
-      for (const file of removed) await fs.remove(path.join(modsDir, file.name));
-      for (const file of changed) await fs.copyFile(path.join(stage, file.name), path.join(modsDir, file.name));
-      await writeJsonAtomic(path.join(modsDir, STATE), manifest);
-      await fs.remove(path.join(modsDir, JOURNAL));
-    } catch (error) {
-      await rollback(modsDir, journal);
-      throw error;
-    }
-    return { status: 'updated', message: `${changed.length}개 설치 · ${removed.length}개 제거. 다음 게임 실행부터 적용됩니다.`,
-      revision: manifest.revision, backupDir };
-  } finally { await fs.remove(stage); }
-}
+const { installManifest, readState } = require('./sync-installer');
+const { detectInstance, assertEnvironment } = require('./launcher-profiles');
+const CLIENT_VERSION = require('../package.json').version;
 
 class ModSync {
-  constructor(root, { request = axios.get, isRunning = gameRunning, onChange = () => {} } = {}) {
+  constructor(root, { request = axios.get, report = axios.post, isRunning = gameRunning, onChange = () => {} } = {}) {
     this.root = root;
     this.file = path.join(root, 'subscriptions.json');
     this.request = request;
+    this.report = report;
     this.isRunning = isRunning;
     this.onChange = onChange;
     this.subscriptions = [];
     this.locks = new Map();
+    this.starting = new Set();
   }
 
   async init() {
@@ -150,6 +40,7 @@ class ModSync {
       throw new Error('참가 목록 파일을 읽을 수 없습니다. 원본 파일을 확인하세요.');
     });
     if (!Array.isArray(this.subscriptions)) throw new Error('참가 목록 형식이 잘못됐습니다.');
+    for (const sub of this.subscriptions) sub.clientId ||= crypto.randomBytes(16).toString('hex');
     this.timer = setInterval(() => this.poll(), 15000);
     this.timer.unref?.();
     this.poll();
@@ -158,19 +49,19 @@ class ModSync {
   async persist() { await writeJsonAtomic(this.file, this.subscriptions); }
 
   list() {
-    return this.subscriptions.map(({ token, ...sub }) => ({ ...sub }));
+    return this.subscriptions.map(({ token, integrity, ...sub }) => ({ ...sub }));
   }
 
   async fetchManifest(sub) {
     const { data } = await this.request(`${sub.origin}/api/packs/${sub.id}/manifest`, {
-      headers: { 'X-Pack-Token': sub.token }, timeout: 15000, maxRedirects: 0, maxContentLength: 512 * 1024,
+      headers: { 'X-Pack-Token': sub.token, 'X-DevKit-Version': CLIENT_VERSION }, timeout: 15000, maxRedirects: 0, maxContentLength: 512 * 1024,
     });
     validateManifest(data);
     if (data.id !== sub.id) throw new Error('초대 링크와 모드팩이 일치하지 않습니다.');
     return data;
   }
 
-  async join(invite, instanceDir, launcher) {
+  async join(invite, instanceDir, launcher, options = {}) {
     const connection = parseInvite(invite);
     const instance = await safeDirectory(instanceDir);
     if (path.basename(instance).toLowerCase() === 'mods') throw new Error('mods 폴더의 상위 게임 폴더를 선택하세요.');
@@ -185,10 +76,15 @@ class ModSync {
     const sub = { ...connection, key: sameFolder?.key || crypto.randomBytes(16).toString('hex'),
       modsDir, launcher: String(launcher || 'official').slice(0, 30), name: manifest.name,
       minecraft: manifest.minecraft, loader: manifest.loader, enabled: true, status: 'pending', message: '첫 동기화를 준비합니다.' };
+    Object.assign(sub, { clientId: sameFolder?.clientId || crypto.randomBytes(16).toString('hex'), nickname: String(options.nickname || '참가자').slice(0,60),
+      syncConfig: options.syncConfig === true, environment: options.environment || null,
+      acknowledged: options.acknowledged === true, loaderVersion: manifest.loaderVersion || '', launchPath: sameFolder?.launchPath || null });
+    if (manifest.schema === 2) assertEnvironment(await detectInstance(instance, launcher, sub.environment || {}), manifest, sub);
     if (sameFolder) this.subscriptions.splice(this.subscriptions.indexOf(sameFolder), 1, sub);
     else this.subscriptions.push(sub);
     await this.persist();
-    await this.sync(sub.key);
+    this.onChange(this.list());
+    await this.sendReport(sub);
     return this.list();
   }
 
@@ -208,22 +104,28 @@ class ModSync {
     try {
       const manifest = await this.fetchManifest(sub);
       // A channel's Minecraft version and loader are pinned to its game instance.
-      if (manifest.minecraft !== sub.minecraft || manifest.loader !== sub.loader) throw new Error('게임 버전 또는 로더가 바뀌었습니다. 새 버전용 게임 인스턴스로 다시 참가하세요.');
+      if (manifest.minecraft !== sub.minecraft || manifest.loader !== sub.loader || (manifest.loaderVersion || '') !== (sub.loaderVersion || '')) throw new Error('게임 버전 또는 로더가 바뀌었습니다. 새 버전용 게임 인스턴스로 다시 참가하세요.');
+      if (manifest.schema === 2) assertEnvironment(await detectInstance(path.dirname(sub.modsDir), sub.launcher, sub.environment || {}), manifest, sub);
       const result = await installManifest(sub.modsDir, manifest, async file => {
         const response = await this.request(`${sub.origin}/api/packs/${sub.id}/files/${file.sha256}`, {
           headers: { 'X-Pack-Token': sub.token }, timeout: 120000, responseType: 'arraybuffer',
           maxRedirects: 0, maxContentLength: file.size, maxBodyLength: MAX_FILE,
         });
         return Buffer.from(response.data);
-      }, this.isRunning);
+      }, this.isRunning, { syncConfig: sub.syncConfig });
       Object.assign(sub, result, { checkedAt: new Date().toISOString() });
+      if(['current','updated'].includes(sub.status)) {
+        sub.integrity=[];
+        for(const file of manifest.files){const name=packPath(file,manifest),stat=await regularFile(path.join(path.dirname(sub.modsDir),...name.split('/')));sub.integrity.push({name,size:stat.size,mtime:stat.mtimeMs});}
+      }
     } catch (e) {
       sub.status = 'error';
       // Avoid persisting HTTP request objects or credentials in error messages.
-      sub.message = e.response ? `호스트 응답 ${e.response.status}. 호스트 실행 상태와 참가 링크를 확인하세요.`
+      sub.message = e.response?.status===426?'MC DevKit을 최신 버전으로 업데이트하세요.':e.response?.status===401?'초대가 만료됐습니다. 새 참가 링크로 다시 연결하세요.':e.response ? `호스트 응답 ${e.response.status}. 호스트 실행 상태와 참가 링크를 확인하세요.`
         : e.isAxiosError ? '호스트에 연결할 수 없습니다. 앱이 실행 중인지, 공유 주소가 바뀌지 않았는지 확인하세요.' : e.message;
     }
     await this.persist();
+    await this.sendReport(sub);
     this.onChange(this.list());
     return this.list();
   }
@@ -231,7 +133,10 @@ class ModSync {
   async update(key, enabled) {
     const sub = this.subscriptions.find(s => s.key === key);
     if (!sub) throw new Error('서버를 찾을 수 없습니다.');
-    sub.enabled = !!enabled;
+    if (typeof enabled === 'object' && enabled) {
+      for (const field of ['enabled','syncConfig','acknowledged']) if (typeof enabled[field] === 'boolean') sub[field]=enabled[field];
+      if (typeof enabled.nickname === 'string') sub.nickname = enabled.nickname.slice(0,60);
+    } else sub.enabled = !!enabled;
     await this.persist();
     return this.list();
   }
@@ -244,7 +149,55 @@ class ModSync {
     return this.list(); // Installed mods and backups deliberately remain on disk.
   }
 
-  poll() { for (const sub of this.subscriptions) if (sub.enabled) this.sync(sub.key).catch(() => {}); }
+  async sendReport(sub) {
+    await this.report(`${sub.origin}/api/packs/${sub.id}/report`, { clientId:sub.clientId, name:sub.nickname || '참가자',
+      status:sub.enabled?sub.status:'paused', revision:sub.revision, clientVersion:CLIENT_VERSION,
+      message: ['error','environment-error'].includes(sub.status)?'환경 확인 또는 적용 실패. 참가자 앱에서 상세 원인을 확인하세요.':sub.message },
+      { headers:{'X-Pack-Token':sub.token},timeout:5000,maxRedirects:0 }).catch(()=>{});
+  }
+
+  async startGame(key, launch) {
+    if(this.starting.has(key))throw Error('게임 시작을 준비 중입니다.');
+    const sub=this.subscriptions.find(s=>s.key===key);
+    if(!sub)throw Error('참가 중인 서버를 찾을 수 없습니다.');
+    this.starting.add(key);
+    try {
+    if(this.locks.has(sub.modsDir))await this.locks.get(sub.modsDir);
+    if(this.locks.has(sub.modsDir))throw Error('게임 시작을 준비 중입니다.');
+    const work=(async()=>{
+      for(let attempt=0;attempt<3;attempt++) {
+        await this.performSync(sub);
+        if(!['current','updated'].includes(sub.status))throw Error(sub.message);
+        const latest=await this.fetchManifest(sub);
+        if(latest.revision!==sub.revision)continue;
+        if(await this.isRunning())throw Error('Minecraft가 이미 실행 중입니다. 먼저 종료하세요.');
+        return { subscriptions:this.list(), ...await launch({...sub}) };
+      }
+      throw Error('호스트 배포가 계속 변경 중입니다. 잠시 후 게임 시작을 다시 누르세요.');
+    })();
+    this.locks.set(sub.modsDir,work);
+    try{return await work;}finally{this.locks.delete(sub.modsDir);}
+    } finally {this.starting.delete(key);}
+  }
+
+  poll() {
+    for (const sub of this.subscriptions) {
+      if (this.locks.has(sub.modsDir)) continue;
+      const work=(async()=>{
+        if(sub.enabled)try {
+          const manifest=await this.fetchManifest(sub);
+          if(manifest.revision!==sub.revision) {sub.status='pending';sub.message='새 승인 배포가 있습니다. 게임 시작을 누르면 자동 적용됩니다.';}
+          else if(['current','updated'].includes(sub.status))for(const file of sub.integrity || []) {
+            const stat=await fs.lstat(path.join(path.dirname(sub.modsDir),...file.name.split('/'))).catch(()=>null);
+            if(!stat?.isFile() || stat.isSymbolicLink() || stat.size!==file.size || stat.mtimeMs!==file.mtime){sub.status='pending';sub.message='게임 파일이 변경됐습니다. 게임 시작 시 다시 확인하고 적용합니다.';break;}
+          }
+        }catch(e){sub.status='error';sub.message=e.response?.status===401?'초대가 만료됐습니다. 새 참가 링크로 다시 연결하세요.':'호스트 연결을 확인하세요.';}
+        await this.sendReport(sub);this.onChange(this.list());
+      })();
+      this.locks.set(sub.modsDir,work);
+      work.finally(()=>{if(this.locks.get(sub.modsDir)===work)this.locks.delete(sub.modsDir);}).catch(()=>{});
+    }
+  }
   async close() { clearInterval(this.timer); await Promise.allSettled([...this.locks.values()]); }
 }
 

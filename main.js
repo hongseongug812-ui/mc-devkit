@@ -6,6 +6,8 @@ const path = require('path');
 const os = require('os');
 const { startServer, getState, getOwnerToken }  = require('./server');
 const { ModSync } = require('./core/mod-sync');
+const { discoverProfiles } = require('./core/launcher-profiles');
+const { openLauncher } = require('./core/game-launcher');
 
 const isDev = process.argv.includes('--dev');
 
@@ -124,7 +126,14 @@ function registerIpc() {
   });
 
   handle('sync-list', () => syncManager.list());
-  handle('sync-join', async (_, invite, launcher) => {
+  handle('launcher-profiles', () => discoverProfiles({appData:app.getPath('appData')}));
+  handle('sync-join', async (_, invite, launcher, options = {}) => {
+    if(options.profileKey) {
+      const profiles=await discoverProfiles({appData:app.getPath('appData')});
+      const profile=profiles.find(p=>p.key===options.profileKey);
+      if(!profile)throw Error('게임 프로필이 변경됐습니다. 목록을 새로고침하세요.');
+      return syncManager.join(invite,profile.instanceDir,profile.launcher,{...options,environment:profile});
+    }
     const defaults = {
       official: path.join(app.getPath('appData'), '.minecraft'),
       curseforge: path.join(os.homedir(), 'curseforge', 'minecraft', 'Instances'),
@@ -133,11 +142,23 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'],
       title: '이 서버 전용 게임 폴더 선택 (mods 폴더의 상위 폴더)', defaultPath: defaults[launcher] });
     if (result.canceled) return null;
-    return syncManager.join(invite, result.filePaths[0], launcher);
+    return syncManager.join(invite, result.filePaths[0], launcher, {...options,environment:null});
   });
   handle('sync-now', (_, key) => syncManager.sync(key));
   handle('sync-toggle', (_, key, enabled) => syncManager.update(key, enabled));
   handle('sync-leave', (_, key) => syncManager.leave(key));
+  const chooseLauncher=async()=>{
+    const result=await dialog.showOpenDialog(win,{properties:['openFile'],title:'게임 런처 또는 프로필 바로가기 선택',filters:[{name:'런처 · 게임 바로가기',extensions:['exe','lnk']}]});
+    return result.canceled?null:result.filePaths[0];
+  };
+  handle('sync-launcher', async(_,key)=>{
+    const sub=syncManager.subscriptions.find(s=>s.key===key);if(!sub)throw Error('참가 서버를 찾을 수 없습니다.');
+    const target=await chooseLauncher();if(target){sub.launchPath=target;await syncManager.persist();}return syncManager.list();
+  });
+  handle('sync-start',(_,key)=>syncManager.startGame(key,sub=>openLauncher(sub,{
+    openPath:target=>shell.openPath(target),select:chooseLauncher,
+    save:async target=>{const saved=syncManager.subscriptions.find(s=>s.key===key);if(saved){saved.launchPath=target;await syncManager.persist();}}
+  })));
 
   // 수동 업데이트 확인
   handle('check-for-updates', async () => {

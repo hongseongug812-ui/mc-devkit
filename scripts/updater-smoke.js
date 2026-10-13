@@ -13,7 +13,7 @@ app.whenReady().then(async () => {
   const { NsisUpdater } = require('electron-updater');
   const updater = new NsisUpdater(require('../package.json').build.publish);
   updater.forceDevUpdateConfig = true;
-  updater.currentVersion = new updater.currentVersion.constructor('1.7.20');
+  updater.currentVersion = new updater.currentVersion.constructor('1.8.0');
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.autoRunAppAfterInstall = false;
@@ -23,7 +23,7 @@ app.whenReady().then(async () => {
   const result = await updater.checkForUpdates();
   const expectedVersion = require('../package.json').version;
   if (result?.updateInfo.version !== expectedVersion) throw Error(`Expected ${expectedVersion}, received ${result?.updateInfo.version}`);
-  console.log(`Public GitHub updater detected ${expectedVersion} from 1.7.20.`);
+  console.log(`Public GitHub updater detected ${expectedVersion} from 1.8.0.`);
   const files = await updater.downloadUpdate();
   const local = path.resolve(__dirname, `../dist/MC DevKit Setup ${expectedVersion}.exe`);
   const hash = async file => {

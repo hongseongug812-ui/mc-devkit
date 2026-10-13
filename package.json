@@ -1,6 +1,6 @@
 {
   "name": "mc-devkit",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Minecraft Creator Studio — 서버 관리와 팀 모드팩 자동 동기화",
   "main": "main.js",
   "scripts": {
@@ -13,14 +13,17 @@
     "build:linux": "electron-builder --linux"
   },
   "dependencies": {
+    "@iarna/toml": "^2.2.5",
     "axios": "^1.6.0",
     "chokidar": "^3.5.3",
     "electron-updater": "^6.8.9",
     "express": "^4.18.2",
     "fs-extra": "^11.2.0",
     "glob": "^10.3.10",
+    "semver": "^7.8.5",
     "uuid": "^9.0.0",
-    "ws": "^8.16.0"
+    "ws": "^8.16.0",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "electron": "^29.4.6",

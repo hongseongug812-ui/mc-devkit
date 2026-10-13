@@ -19,6 +19,18 @@ function validName(name) {
     && !name.startsWith('.') && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])\./i.test(name);
 }
 
+const PRIVATE_CONFIG = /(?:^|\/)(?:options(?:of|shaders)?\.txt|.*(?:keybind|keymap|hotkey|credentials|account|secret|token).*|\.mc-devkit.*)$/i;
+function validPackPath(name) {
+  if (typeof name !== 'string' || name.length > 240 || name.includes('\\')) return false;
+  const parts = name.split('/');
+  if (parts.some(p => !p || p === '.' || p === '..' || /[<>:"|?*\x00-\x1f]/.test(p)
+    || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) return false;
+  if (parts[0] === 'mods') return parts.length === 2 && validName(parts[1]);
+  return parts[0] === 'config' && parts.length >= 2 && parts.length <= 8
+    && /\.(json|json5|toml|cfg|conf|properties|yaml|yml|txt)$/i.test(name) && !PRIVATE_CONFIG.test(name);
+}
+function packPath(file, manifest) { return manifest.schema === 1 ? `mods/${file.name}` : file.name; }
+
 async function regularFile(file) {
   const stat = await fs.lstat(file);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('일반 파일만 사용할 수 있습니다.');
@@ -43,7 +55,7 @@ async function safeDirectory(dir, create = false) {
 }
 
 function validateManifest(manifest) {
-  if (!manifest || manifest.schema !== 1 || !/^[a-f0-9]{32}$/.test(manifest.id)
+  if (!manifest || ![1, 2].includes(manifest.schema) || !/^[a-f0-9]{32}$/.test(manifest.id)
     || !/^[a-f0-9]{64}$/.test(manifest.revision) || !Array.isArray(manifest.files)
     || manifest.files.length > MAX_FILES || typeof manifest.name !== 'string'
     || manifest.name.length > 200 || !/^\d+\.\d+(\.\d+)?$/.test(manifest.minecraft)
@@ -51,18 +63,21 @@ function validateManifest(manifest) {
   const names = new Set();
   let size = 0;
   for (const file of manifest.files) {
-    if (!validName(file.name) || !/^[a-f0-9]{64}$/.test(file.sha256)
+    if (!(manifest.schema === 1 ? validName(file.name) : validPackPath(file.name)) || !/^[a-f0-9]{64}$/.test(file.sha256)
       || !Number.isSafeInteger(file.size) || file.size <= 0 || file.size > MAX_FILE
       || names.has(file.name.toLowerCase())) throw new Error('잘못된 모드 파일 정보입니다.');
     names.add(file.name.toLowerCase());
     size += file.size;
   }
   if (size > MAX_PACK) throw new Error('모드팩 크기가 2GB를 초과합니다.');
+  if (manifest.schema === 2 && (typeof manifest.loaderVersion !== 'string' || manifest.loaderVersion.length > 80)) throw new Error('잘못된 로더 버전입니다.');
   if (revisionOf(manifest) !== manifest.revision) throw new Error('모드팩 정보의 해시가 일치하지 않습니다.');
   return manifest;
 }
 
 function revisionOf(manifest) {
+  if (manifest.schema === 2) return sha256(JSON.stringify({ schema: 2, id: manifest.id,
+    name: manifest.name, minecraft: manifest.minecraft, loader: manifest.loader, loaderVersion: manifest.loaderVersion, files: manifest.files }));
   return sha256(JSON.stringify({ id: manifest.id, name: manifest.name, minecraft: manifest.minecraft,
     loader: manifest.loader, files: manifest.files }));
 }
@@ -77,4 +92,4 @@ async function writeJsonAtomic(file, value) {
 }
 
 module.exports = { MAX_FILE, MAX_PACK, MAX_FILES, sha256, hashFile, validName, regularFile,
-  safeDirectory, validateManifest, revisionOf, writeJsonAtomic };
+  safeDirectory, validateManifest, revisionOf, writeJsonAtomic, validPackPath, packPath, PRIVATE_CONFIG };

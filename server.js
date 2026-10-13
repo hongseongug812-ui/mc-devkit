@@ -19,8 +19,8 @@ const TeamManager    = require('./core/team-manager');
 const PlayitManager  = require('./core/playit-manager');
 const { logger, redactText } = require('./core/diagnostic-logger');
 const APP_VERSION    = require('./package.json').version;
-const PackPublisher = require('./core/pack-publisher');
-const { listVersions } = require('./core/versions');
+const PackPublisher = require('./core/studio-publisher');
+const { listVersions, listLoaders } = require('./core/versions');
 const DATA_ROOT = process.env.DEVKIT_DATA_DIR || path.join(os.homedir(), '.mc-devkit');
 const {
   allocateProfileFolder,
@@ -54,6 +54,7 @@ const CONFIG = {
   paperVersion: _saved.paperVersion || process.env.PAPER_VERSION || '1.21.4',
   memory:       _saved.memory       || process.env.MEMORY        || '2G',
   serverType:   _saved.serverType   || 'paper',
+  loaderVersion:_saved.loaderVersion || '',
   serverFolder: _saved.serverFolder || null,
   rconPassword: process.env.RCON_PASSWORD || 'devkit_' + Math.random().toString(36).slice(2),
   buildCmd:     _saved.buildCmd     || process.env.BUILD_CMD     || null,
@@ -100,7 +101,7 @@ const rcon = new RconClient(
 );
 
 const serverManager = new ServerManager(
-  { serverDir: CONFIG.serverDir, version: CONFIG.paperVersion, memory: CONFIG.memory, serverType: CONFIG.serverType, serverFolder: CONFIG.serverFolder, rconPassword: CONFIG.rconPassword },
+  { serverDir: CONFIG.serverDir, version: CONFIG.paperVersion, memory: CONFIG.memory, serverType: CONFIG.serverType, loaderVersion:CONFIG.loaderVersion, serverFolder: CONFIG.serverFolder, rconPassword: CONFIG.rconPassword },
   (line, stream = 'stdout') => {
     publishLog(line, stream === 'stderr' ? 'minecraft.stderr' : 'minecraft');
 
@@ -172,7 +173,7 @@ const ngrokManager = new PlayitManager(
 );
 const packPublisher = new PackPublisher(path.join(DATA_ROOT, 'packs'),
   manifest => {
-    publishLog(`[모드팩] ${manifest.name} · MC ${manifest.minecraft} · ${manifest.files.length}개 배포 완료`, 'modpack');
+    publishLog(`[모드팩] ${manifest.name} · MC ${manifest.minecraft} · ${manifest.files.length}개 ${manifest.prepared ? '배포 준비 완료' : '승인 배포 완료'}`, 'modpack');
     teamManager?.broadcast({ type: 'PACK_PUBLISHED', id: manifest.id, revision: manifest.revision });
   }, error => publishLog(`[모드팩] 자동 배포 실패: ${error.message}`, 'modpack'));
 
@@ -232,7 +233,7 @@ function startServer(port) {
 
     // All mutations need an authenticated session. Pack invitations grant downloads only.
     app.use('/api', (req, res, next) => {
-      if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/diagnostics/client-error') return next();
+      if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/diagnostics/client-error' || /^\/packs\/[a-f0-9]{32}\/report$/.test(req.path)) return next();
       const client = teamManager.clients.get(req.headers['x-devkit-token']);
       if (!client) return res.status(401).json({ error: '인증 필요' });
       const restricted = /^\/(config|profiles|permissions|playit|mc-address|modpack|tunnel|ngrok|server-properties)(\/|$)/.test(req.path);
@@ -249,8 +250,15 @@ function startServer(port) {
       next();
     };
     app.get('/api/packs/:id/manifest', packAuth, async (req, res) => {
-      try { res.json(await packPublisher.manifest(req.params.id)); }
+      try {
+        const manifest=await packPublisher.manifest(req.params.id);
+        if(manifest.schema===2 && !require('semver').gte(require('semver').valid(req.headers['x-devkit-version'])||'0.0.0','1.9.0'))return res.status(426).json({error:'MC DevKit 1.9.0 이상으로 업데이트하세요.'});
+        res.json(manifest);
+      }
       catch { res.status(404).json({ error: '호스트가 모드팩을 먼저 배포해야 합니다.' }); }
+    });
+    app.post('/api/packs/:id/report',packAuth,async(req,res)=>{
+      try {res.json(await packPublisher.report(req.params.id,req.body));}catch(e){res.status(400).json({error:e.message});}
     });
     app.get('/api/packs/:id/files/:hash', packAuth, async (req, res) => {
       try { res.sendFile(await packPublisher.object(req.params.id, req.params.hash)); }
@@ -259,21 +267,34 @@ function startServer(port) {
     app.get('/api/modpack', requirePerm('kick'), async (req, res) => {
       try {
         const channel = await packPublisher.channel(CONFIG, req.query.name);
-        const manifest = await packPublisher.manifest(channel.id).catch(() => null);
-        res.json({ ...channel, serverModsDir: path.join(activeServerDir(), 'mods'), manifest });
+        res.json({ ...await packPublisher.view(channel), serverModsDir: path.join(activeServerDir(), 'mods') });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
     app.post('/api/modpack/publish', async (req, res) => {
       try {
         const channel = await packPublisher.channel(CONFIG, req.body.name);
         const updated = await packPublisher.configure(channel, req.body);
-        const manifest = await packPublisher.publish(updated);
-        res.json({ ...updated, manifest });
+        await packPublisher.publish(updated);
+        res.json(await packPublisher.view(updated));
       } catch (e) { res.status(400).json({ error: e.message }); }
+    });
+    for (const action of ['promote','mode','restore','invite']) app.post(`/api/modpack/${action}`,async(req,res)=>{
+      try {
+        const channel=await packPublisher.channel(CONFIG,req.body.name);
+        if(req.body.id!==channel.id)throw Error('선택한 서버가 변경됐습니다. 화면을 새로고침하세요.');
+        if(action==='promote')await packPublisher.promote(channel.id,req.body.revision,req.body.allowEmpty===true);
+        if(action==='mode')await packPublisher.setMode(channel.id,req.body.mode);
+        if(action==='restore')await packPublisher.restore(channel.id,req.body.revision);
+        if(action==='invite')await packPublisher.invite(channel.id,req.body.action);
+        res.json(await packPublisher.view(channel));
+      }catch(e){res.status(400).json({error:e.message});}
     });
     app.get('/api/versions/:type', async (req, res) => {
       try { res.json(await listVersions(req.params.type, req.query.refresh === '1')); }
       catch (e) { res.status(502).json({ error: e.message }); }
+    });
+    app.get('/api/loaders/:type/:minecraft',async(req,res)=>{
+      try{res.json(await listLoaders(req.params.type,req.params.minecraft));}catch(e){res.status(502).json({error:e.message});}
     });
     app.use(express.static(path.join(__dirname, 'client')));
 
@@ -341,12 +362,17 @@ function startServer(port) {
     app.post('/api/server/update', async (_, res) => safeRun(res, () => serverManager.updateRuntime()));
     app.post('/api/build',          async (_, res) => safeRun(res, () => buildWatcher.triggerBuild()));
     app.post('/api/tunnel/start',   async (_, res) => safeRun(res, () => tunnelManager.start()));
+    app.get('/api/tunnel/settings',requirePerm('kick'),(_,res)=>res.json(tunnelManager.getSettings()));
+    app.post('/api/tunnel/settings',async(req,res)=>{
+      try{res.json(await tunnelManager.configure(req.body));}catch(e){res.status(400).json({error:e.message});}
+    });
     app.post('/api/tunnel/stop',    (_, res)        => { tunnelManager.stop(); res.json({ ok: true }); });
 
     app.post('/api/config', (req, res) => {
       if (serverManager.getStatus() !== 'stopped') return res.status(409).json({ error: '서버를 중지한 뒤 설정을 변경하세요.' });
-      const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder, connectionMode } = req.body;
-      if (serverType && !['paper', 'fabric', 'vanilla', 'arclight', 'cardboard'].includes(serverType)) return res.status(400).json({ error: '지원하지 않는 서버 종류' });
+      const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder, connectionMode, loaderVersion } = req.body;
+      if (serverType && !['paper', 'fabric', 'forge', 'neoforge', 'vanilla', 'arclight', 'cardboard'].includes(serverType)) return res.status(400).json({ error: '지원하지 않는 서버 종류' });
+      if(loaderVersion!==undefined && (typeof loaderVersion!=='string' || !/^[\d.]{0,60}$/.test(loaderVersion)))return res.status(400).json({error:'안정 로더 버전을 선택하세요.'});
       if (paperVersion && !/^\d+\.\d+(\.\d+)?$/.test(paperVersion)) return res.status(400).json({ error: '안정 게임 버전을 선택하세요.' });
       if (memory && !/^[1-9]\d*[GM]$/.test(memory)) return res.status(400).json({ error: '메모리 설정을 확인하세요.' });
       try { if (serverFolder) profileDirectory(serverDir || CONFIG.serverDir, serverFolder); }
@@ -358,6 +384,8 @@ function startServer(port) {
       if (paperVersion) { CONFIG.paperVersion = paperVersion; serverManager.config.version  = paperVersion; }
       if (buildCmd !== undefined) { CONFIG.buildCmd = buildCmd; buildWatcher.config.buildCmd = buildCmd || null; }
       if (serverType)   { CONFIG.serverType   = serverType;  serverManager.config.serverType   = serverType; buildWatcher.config.serverType = serverType; }
+      if(loaderVersion!==undefined){CONFIG.loaderVersion=loaderVersion;serverManager.config.loaderVersion=loaderVersion;}
+      else if(serverType || paperVersion){CONFIG.loaderVersion='';serverManager.config.loaderVersion='';}
       if (serverFolder !== undefined) { CONFIG.serverFolder = serverFolder; serverManager.config.serverFolder = serverFolder || null; buildWatcher.config.serverFolder = serverFolder || null; }
       if (connectionMode === 'playit' || connectionMode === 'portforward') {
         CONFIG.connectionMode = connectionMode;
@@ -409,6 +437,7 @@ function startServer(port) {
 
         profiles[name] = {
           serverType:   CONFIG.serverType,
+          loaderVersion:CONFIG.loaderVersion,
           paperVersion: CONFIG.paperVersion,
           memory:       CONFIG.memory,
           serverDir:    CONFIG.serverDir,
@@ -487,6 +516,7 @@ function startServer(port) {
       if (!p) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
       if (p.serverType)   { CONFIG.serverType   = p.serverType;   serverManager.config.serverType   = p.serverType; buildWatcher.config.serverType = p.serverType; }
       if (p.paperVersion) { CONFIG.paperVersion = p.paperVersion; serverManager.config.version      = p.paperVersion; }
+      CONFIG.loaderVersion=p.loaderVersion||'';serverManager.config.loaderVersion=CONFIG.loaderVersion;
       if (p.memory)       { CONFIG.memory       = p.memory;       serverManager.config.memory       = p.memory; }
       if (p.serverDir)    { CONFIG.serverDir    = p.serverDir;    serverManager.config.serverDir    = p.serverDir; buildWatcher.config.serverDir = p.serverDir; }
       if (p.projectDir)   { CONFIG.projectDir   = p.projectDir;   buildWatcher.config.projectDir    = p.projectDir; }
@@ -506,7 +536,7 @@ function startServer(port) {
       res.json({ ok: true, config: publicConfig });
     });
 
-    for (const type of ['paper','fabric','vanilla','arclight','cardboard']) {
+    for (const type of ['paper','fabric','forge','neoforge','vanilla','arclight','cardboard']) {
       app.get(`/api/${type}-versions`, async (_, res) => {
         try { res.json(await listVersions(type)); }
         catch (e) { res.status(502).json({ error: e.message }); }

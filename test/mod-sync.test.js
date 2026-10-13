@@ -49,7 +49,7 @@ test('host change replaces managed mods, removes obsolete versions, preserves pe
   assert.equal(await fs.pathExists(path.join(mods,'creator-v1.jar')),false);
   assert.equal(await fs.readFile(path.join(mods,'creator-v2.jar'),'utf8'),'v2');
   assert.equal(await fs.readFile(path.join(mods,'personal.jar'),'utf8'),'personal');
-  assert.equal(await fs.readFile(path.join(result.backupDir,'creator-v1.jar'),'utf8'),'v1');
+  assert.equal(await fs.readFile(path.join(result.backupDir,'mods','creator-v1.jar'),'utf8'),'v1');
   assert.equal((await installManifest(mods,next,() => { throw Error('should not download'); },closed)).status,'current');
 });
 
@@ -115,11 +115,14 @@ test('client joins once, persists subscriptions, syncs changes and pause/leave k
     if(url.endsWith('/manifest')) return {data:await publisher.manifest(channel.id)};
     return {data:await fs.readFile(await publisher.object(channel.id,url.split('/').pop()))};
   };
-  const manager=new ModSync(path.join(root,'participant'),{request,isRunning:closed});
+  const manager=new ModSync(path.join(root,'participant'),{request,report:async()=>({data:{ok:true}}),isRunning:closed});
   const instance=path.join(root,'game');await fs.ensureDir(instance);
   const link=`https://host.example/?join=${channel.id}#token=${channel.token}`;
   assert.equal(parseInvite(link).origin,'https://host.example');
   await manager.join(link,instance,'curseforge');
+  assert.equal(manager.list()[0].status,'pending');
+  assert.equal(await fs.pathExists(path.join(instance,'mods','creator.jar')),false);
+  await manager.sync(manager.list()[0].key);
   assert.equal(manager.list()[0].status,'updated');
   assert.equal(manager.list()[0].token,undefined);
   const key=manager.list()[0].key;

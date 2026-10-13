@@ -1,7 +1,7 @@
 'use strict';
 const { listVersions, paperBuild, requiredJava } = require('../core/versions');
 (async () => {
-  const results = await Promise.allSettled(['paper','fabric','vanilla','arclight','cardboard'].map(async type => {
+  const results = await Promise.allSettled(['paper','fabric','forge','neoforge','vanilla','arclight','cardboard'].map(async type => {
     const versions=await listVersions(type,true);
     console.log(`${type}: ${versions[0]} (${versions.length} releases), Java ${requiredJava(versions[0])}+`);
     if(type==='paper') {

@@ -40,6 +40,8 @@ async function listVersions(type, refresh = false) {
   } else if (type === 'vanilla') {
     const { data } = await axios.get(MOJANG_META, options);
     value = sortVersions(data.versions.filter(v => v.type === 'release').map(v => v.id));
+  } else if (['forge','neoforge'].includes(type)) {
+    value=sortVersions(await require('./forge-runtime').gameVersions(type));
   } else if (type === 'cardboard') {
     const { data } = await axios.get('https://api.modrinth.com/v2/project/cardboard', options);
     value = sortVersions(data.game_versions || []);
@@ -60,4 +62,14 @@ async function paperBuild(version) {
   return { id: build.id, ...build.downloads['server:default'] };
 }
 
-module.exports = { sortVersions, requiredJava, listVersions, paperBuild, USER_AGENT, MOJANG_META };
+async function listLoaders(type,minecraft) {
+  if(!/^\d+\.\d+(\.\d+)?$/.test(minecraft))throw Error('게임 버전을 확인하세요.');
+  if(['forge','neoforge'].includes(type))return require('./forge-runtime').loaderVersions(type,minecraft);
+  if(['fabric','cardboard'].includes(type)) {
+    const {data}=await axios.get(`https://meta.fabricmc.net/v2/versions/loader/${minecraft}`,options);
+    return data.filter(v=>v.loader.stable).map(v=>({version:v.loader.version}));
+  }
+  return [];
+}
+
+module.exports = { sortVersions, requiredJava, listVersions, listLoaders, paperBuild, USER_AGENT, MOJANG_META };

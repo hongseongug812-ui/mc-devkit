@@ -886,11 +886,18 @@
       <div class="mc-section">
         <div class="mc-section-title">참가자 모드팩 배포</div>
         <p class="subtle">이 서버와 게임 버전 전용 배포입니다. 참가자에게 필요한 모드만 배포 폴더에 넣으세요.</p>
+        <div id="packStatus" class="status-note" role="status"></div>
+        <div class="form-heading">준비된 변경분</div><div id="packPending" class="release-preview"></div>
+        <label class="check-row"><input id="packEmpty" type="checkbox"/>빈 배포 승인 · 관리 파일 모두 제거</label>
+        <div class="mc-row"><button id="approvePackBtn" class="mc-btn t-green" onclick="approvePack()">변경분 승인 · 참가자에게 배포</button><button id="filmingPackBtn" class="mc-btn" onclick="toggleFilming()">촬영 모드 켜기</button></div>
+        <div class="form-heading">이전 배포 복원</div><div class="mc-row"><select id="packHistory" class="mc-inp" aria-label="이전 배포 선택"></select><button class="mc-btn xs" onclick="restorePack()">복원 배포</button></div>
+        <details class="studio-details"><summary>현재 승인 배포 파일</summary><div id="packFiles" class="pack-file-list"></div></details>
+        <details id="packSettings" class="studio-details" open><summary>배포 환경 · 원본 설정</summary>
         <div class="form-heading">배포 환경</div>
         <div id="packVersion" class="status-note"></div>
         <label class="mc-label" for="packLoader">참가자 게임 로더</label>
         <select id="packLoader" class="mc-inp"><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="none">없음 (Vanilla)</option></select>
-        <div class="field-hint">참가자는 이 버전과 로더를 런처에 설치해야 합니다.</div>
+        <label class="mc-label" for="packLoaderVersion">정확한 로더 버전 (선택)</label><input id="packLoaderVersion" class="mc-inp" placeholder="예: 0.18.4"/><div class="field-hint">참가자는 동일한 Minecraft·로더를 설치해야 합니다. 지정하면 정확한 로더 버전도 검사합니다.</div>
         <div class="form-heading">클라이언트 모드 폴더</div>
         <div class="mc-row" style="margin-top:10px"><input id="packSource" class="mc-inp" readonly aria-label="배포 모드 폴더"/><button class="mc-btn xs" onclick="pickDir('packSource')">찾기</button></div>
         <button class="mc-btn xs" style="margin-top:8px" onclick="useServerMods()">서버 mods 폴더를 배포 원본으로 사용</button>
@@ -898,19 +905,34 @@
         <label class="mc-label" for="packPatterns" style="margin-top:12px">배포할 모드 파일 규칙</label>
         <input id="packPatterns" class="mc-inp" value="*.jar" placeholder="creator-*.jar, fabric-api-*.jar"/>
         <div class="field-hint">쉼표로 구분하고 *는 모든 문자를 뜻합니다. 서버 mods 폴더를 사용한다면 참가자에게 필요한 공용 모드만 지정하세요.</div>
-        <label class="check-row"><input id="packAuto" type="checkbox" checked/>폴더 변경 시 자동 배포</label>
-        <button id="publishPackBtn" class="mc-btn t-green" onclick="publishPack()">모드팩 배포 · 자동 배포 설정 저장</button>
-        <div id="packStatus" class="status-note" role="status"></div>
-        <div id="packFiles" class="pack-file-list"></div>
+        <div class="form-heading">공용 설정</div>
+        <div class="mc-row"><input id="packConfigSource" class="mc-inp" readonly aria-label="공용 설정 원본 폴더"/><button class="mc-btn xs" onclick="pickDir('packConfigSource')">찾기</button></div>
+        <label class="mc-label" for="packConfigPatterns">공유할 설정 파일 규칙 (선택)</label><input id="packConfigPatterns" class="mc-inp" placeholder="creator.toml, creator/*.json"/>
+        <div class="field-hint">선택한 config 파일만 백업 후 적용합니다. 키 설정·계정·토큰 파일은 제외됩니다. options.txt는 공유하지 않습니다.</div>
+        <div class="form-heading">배포 정책</div><label class="mc-label" for="packMode">변경분 적용 방식</label>
+        <select id="packMode" class="mc-inp"><option value="review">검사 후 승인 배포 (권장)</option><option value="auto">검사 통과 시 자동 배포</option><option value="filming">촬영 모드 · 현재 배포 고정</option></select>
+        <label class="check-row"><input id="packAuto" type="checkbox" checked/>폴더 변경 감지 · 변경분 자동 준비</label>
+        <button id="publishPackBtn" class="mc-btn t-green" onclick="publishPack()">검사 · 배포 준비</button>
+        </details>
       </div>
       <div class="mc-section">
         <div class="mc-section-title">팀원 초대</div>
-        <p class="subtle">모드팩을 배포한 후 공유 링크를 복사하세요. 이 링크는 모드 다운로드만 허용합니다.</p>
+        <p class="subtle">승인된 배포를 공유하세요. 팀원의 게임 시작 버튼에서 모드와 공용 설정이 적용됩니다.</p>
+        <div class="form-heading">참가자 준비 현황</div><div id="packReadySummary" class="status-note"></div><div id="packParticipants" class="participant-list"></div>
         <label class="mc-label" for="packBase" style="margin-top:12px">공유 서버 주소</label>
         <input id="packBase" class="mc-inp" placeholder="https://…trycloudflare.com"/>
-        <div class="field-hint">상단 ‘터널 켜기’로 관리 서버를 공유하세요. Minecraft용 playit 주소와는 별도입니다. 공유 터널을 다시 시작하면 새 링크를 전달하세요.</div>
+        <div class="field-hint">Minecraft 접속 주소와 별도의 관리 서버 공유 주소입니다. 임시 터널은 재시작하면 주소가 바뀝니다.</div>
         <button class="mc-btn" style="margin-top:12px" onclick="copyPackInvite()">참가 링크 복사</button>
         <div id="packInviteStatus" class="status-note" role="status"></div>
+        <div class="mc-row"><button class="mc-btn xs" onclick="manageInvite('rotate')">초대 재발급</button><button class="mc-btn xs" onclick="manageInvite('revoke')">초대 사용 중지</button></div>
+        <div class="field-hint">재발급·중지하면 기존 참가자 연결도 만료됩니다. 새 링크로 다시 연결하세요.</div>
+        <details class="studio-details"><summary>고정 공유 주소 설정</summary><label class="mc-label" for="tunnelMode">공유 방식</label>
+        <select id="tunnelMode" class="mc-inp"><option value="quick">임시 Cloudflare 터널</option><option value="named">고정 Cloudflare 터널</option><option value="external">기존 고정 주소 · 외부 프록시</option></select>
+        <label class="mc-label" for="tunnelOrigin">고정 HTTPS 주소</label><input id="tunnelOrigin" class="mc-inp" placeholder="https://studio.example.com"/>
+        <label class="mc-label" for="tunnelToken">Cloudflare 터널 토큰</label><input id="tunnelToken" class="mc-inp" type="password" autocomplete="off" placeholder="저장된 토큰은 표시하지 않습니다"/>
+        <div class="field-hint">Cloudflare에서 도메인과 터널을 만들고 공개 호스트의 서비스 주소를 http://localhost:3847로 설정하세요. 토큰은 호스트 PC에 저장합니다.</div>
+        <button class="mc-btn xs" onclick="saveTunnelSettings()">공유 설정 저장</button>
+        </details>
       </div>
     </div>
 
@@ -945,11 +967,14 @@
               <select id="cfgServerType" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;" onchange="onServerTypeChange()">
                 <option value="paper">Paper (플러그인)</option>
                 <option value="fabric">Fabric (모드)</option>
+                <option value="forge">Forge (독립 모드 서버)</option>
+                <option value="neoforge">NeoForge (독립 모드 서버)</option>
                 <option value="arclight">Arclight (모드+플러그인)</option>
                 <option value="cardboard">Cardboard (모드+플러그인)</option>
                 <option value="vanilla">Vanilla (기본 서버)</option>
               </select>
             </div>
+            <div id="loaderVersionField" style="display:none"><label class="mc-label" for="cfgLoaderVersion">서버 로더 버전</label><select id="cfgLoaderVersion" class="mc-inp"><option value="">자동 · 권장 안정 버전</option></select><div class="field-hint">촬영용은 정확한 로더 버전을 고정하세요. 참가자의 로더도 같은 버전으로 설치하세요.</div></div>
             <div class="mc-grid2">
               <div>
                 <label class="mc-label" id="cfgVersionLabel">MC 버전</label>
@@ -1129,14 +1154,17 @@
 <div id="joinModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeJoinModal()">
   <div class="modal-box">
     <div class="eyebrow">JOIN YOUR TEAM</div><div class="modal-title">서버에 참가하기</div>
-    <p class="subtle" style="margin-bottom:20px">한 번 연결하면 호스트의 모드 업데이트를 자동으로 받습니다.</p>
+    <p class="subtle" style="margin-bottom:20px">서버를 연결하고 게임 시작을 누르면 최신 승인 배포가 자동 적용됩니다.</p>
     <div class="mc-col">
       <div><label class="mc-label" for="joinInvite">호스트의 참가 링크</label><input id="joinInvite" class="mc-inp" placeholder="https://…/?join=…#token=…"/></div>
-      <div><label class="mc-label" for="joinLauncher">사용하는 런처</label><select id="joinLauncher" class="mc-inp"><option value="official">Minecraft 공식 런처</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option><option value="other">Prism / MultiMC / 기타</option></select></div>
-      <div class="notice">공식 런처: 설치 설정 → 게임 디렉터리를 서버별로 지정하세요.<br>CurseForge · Modrinth: 해당 프로필의 ‘폴더 열기’에서 게임 폴더를 확인하세요.<br>다음 단계에서 <b>mods 폴더의 상위 게임 폴더</b>를 선택합니다. 서버별로 별도 폴더를 사용하세요.</div>
-      <div class="field-hint">처음 연결한 호스트가 배포하는 .jar 모드가 자동 설치됩니다. 게임 실행 중에는 적용을 기다리며, 기존 개인 모드는 덮어쓰지 않습니다.</div>
+      <div><label class="mc-label" for="joinLauncher">사용하는 런처</label><select id="joinLauncher" class="mc-inp" onchange="refreshLauncherProfiles()"><option value="official">Minecraft 공식 런처</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option><option value="other">Prism / MultiMC / 기타</option></select></div>
+      <div><label class="mc-label" for="joinProfile">게임 프로필</label><div class="mc-row"><select id="joinProfile" class="mc-inp"><option value="">게임 폴더 직접 선택</option></select><button class="mc-btn xs" onclick="refreshLauncherProfiles()">새로고침</button></div></div>
+      <div><label class="mc-label" for="joinNickname">호스트에게 표시할 이름</label><input id="joinNickname" class="mc-inp" maxlength="60" placeholder="촬영 닉네임"/></div>
+      <label class="check-row"><input id="joinConfig" type="checkbox" checked/>호스트가 선택한 공용 설정 적용 (기존 파일 백업)</label>
+      <label class="check-row"><input id="joinAcknowledged" type="checkbox"/>환경 자동 확인이 불가능한 폴더의 버전·로더를 직접 확인했습니다</label>
+      <div class="notice">서버별로 별도 인스턴스를 연결하세요. 게임 시작 시 적용을 마친 뒤 런처를 엽니다. 런처에서 연결한 프로필의 플레이를 눌러주세요. 게임 프로필 바로가기도 연결할 수 있습니다.</div>
       <div id="joinStatus" class="status-note" role="status"></div>
-      <div class="mc-row"><button class="mc-btn" onclick="closeJoinModal()">닫기</button><button id="joinBtn" class="mc-btn t-green" onclick="joinPack()">게임 폴더 선택 · 참가</button></div>
+      <div class="mc-row"><button class="mc-btn" onclick="closeJoinModal()">닫기</button><button id="joinBtn" class="mc-btn t-green" onclick="joinPack()">게임 프로필 연결 · 참가</button></div>
     </div>
   </div>
 </div>
@@ -1408,7 +1436,7 @@ function handle(msg) {
     case 'MC_ADDRESS':     setMcAddr(msg.address);                        break;
     case 'PLAYIT_CLAIM':  showPlayitClaim(msg.url);                      break;
     case 'PLAYERS_UPDATE': renderPlayers(msg.players || []);             break;
-    case 'PACK_PUBLISHED': if (typeof loadPackPanel === 'function' && document.getElementById('tab-pack').style.display !== 'none') loadPackPanel(); break;
+    case 'PACK_PUBLISHED': if (typeof refreshPackState === 'function') refreshPackState(); break;
     case 'SERVER_CRASH':
       appendLog('[DevKit] ⚠ 서버 비정상 종료 — 10초 후 자동 재시작...', 'error');
       renderPlayers([]);
@@ -1885,6 +1913,9 @@ function onServerTypeChange(reloadVersions = true) {
   const isCardboard=type === 'cardboard';
   const isPaper   = type === 'paper';
   const isHybrid  = isArclight || isCardboard;
+  const isMod = isFabric || ['forge','neoforge'].includes(type) || isHybrid;
+  document.getElementById('loaderVersionField').style.display=['fabric','forge','neoforge','cardboard'].includes(type)?'':'none';
+  if(reloadVersions)document.getElementById('cfgLoaderVersion').value='';
 
   document.getElementById('cfgVersionLabel').textContent = 'MC 버전';
 
@@ -1894,12 +1925,12 @@ function onServerTypeChange(reloadVersions = true) {
   });
   // 모드 섹션: fabric + 하이브리드
   document.querySelectorAll('.fabric-only').forEach(el => {
-    el.style.display = (isFabric || isHybrid) ? '' : 'none';
+    el.style.display = isMod ? '' : 'none';
   });
 
   const cur = document.getElementById('cfgVersion').value;
   if (reloadVersions) loadVersionList(null);
-  if (isFabric || isHybrid) loadMods();
+  if (isMod) loadMods();
   if (isPaper  || isHybrid) loadPlugins();
 }
 
@@ -1923,6 +1954,7 @@ async function saveConfig({ saveProperties = true } = {}) {
       paperVersion: document.getElementById('cfgVersion').value,
       memory:       document.getElementById('cfgMemory').value,
       serverType:   document.getElementById('cfgServerType').value,
+      loaderVersion:document.getElementById('cfgLoaderVersion').value,
     }),
   });
   if (!response.ok) { const data = await response.json(); throw new Error(data.error || '설정 저장 실패'); }
@@ -1935,6 +1967,8 @@ async function saveConfig({ saveProperties = true } = {}) {
 const PROFILE_TYPE_META = {
   paper:     { bg: 'linear-gradient(135deg,#14532d,#166534)', icon: '📄', label: 'Paper' },
   fabric:    { bg: 'linear-gradient(135deg,#3b0764,#581c87)', icon: '🧵', label: 'Fabric' },
+  forge:     { bg: 'linear-gradient(135deg,#334155,#64748b)', icon: '🔨', label: 'Forge' },
+  neoforge:  { bg: 'linear-gradient(135deg,#7c2d12,#ea580c)', icon: '🦊', label: 'NeoForge' },
   arclight:  { bg: 'linear-gradient(135deg,#7c2d12,#c2410c)', icon: '⚡', label: 'Arclight' },
   cardboard: { bg: 'linear-gradient(135deg,#78350f,#a16207)', icon: '📦', label: 'Cardboard' },
   vanilla:   { bg: 'linear-gradient(135deg,#1a1a2e,#16213e)', icon: '🍦', label: 'Vanilla' },
@@ -2142,6 +2176,7 @@ async function loadVersionList(selectedVersion, refresh = false) {
       ).join('')}</optgroup>`
     ).join('');
     updateVersionHint();
+    if(typeof loadLoaderVersions==='function')await loadLoaderVersions(document.getElementById('cfgLoaderVersion').value);
   } catch (e) {
     if (request !== versionRequest) return;
     sel.innerHTML = selectedVersion ? `<option selected>${esc(selectedVersion)}</option>` : '<option value="">목록을 다시 불러오세요</option>';
@@ -2158,6 +2193,7 @@ async function loadConfig() {
   document.getElementById('cfgBuildCmd').value = cfg.buildCmd   || '';
   document.getElementById('cfgServerType').value = cfg.serverType || 'paper';
   await loadVersionList(cfg.paperVersion || '1.21.4');
+  if(typeof loadLoaderVersions==='function')await loadLoaderVersions(cfg.loaderVersion||'');
   if (cfg.memory) {
     const mEl = document.getElementById('cfgMemory');
     [...mEl.options].forEach(o => { o.selected = (o.value === cfg.memory); });
@@ -2513,7 +2549,7 @@ async function init() {
   await loadConfig();
   loadProfiles();
   await loadPlugins();
-  if (document.getElementById('cfgServerType').value === 'fabric') loadMods();
+  if (['fabric','forge','neoforge','arclight','cardboard'].includes(document.getElementById('cfgServerType').value)) loadMods();
 
   appendLog('[DevKit] MC DevKit 준비 완료', 'devkit');
 }

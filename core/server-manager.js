@@ -7,6 +7,7 @@ const os   = require('os');
 const axios = require('axios');
 const crypto = require('crypto');
 const { requiredJava, paperBuild, USER_AGENT } = require('./versions');
+const {ensureRuntime}=require('./forge-runtime');
 
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
@@ -102,7 +103,8 @@ class ServerManager {
   // forcedMajor: 이전 실행에서 "Java N 이상 필요" 메시지를 감지한 경우 그 버전을 강제
   async _ensureJava(forcedMajor = null) {
     const minimum = forcedMajor || requiredJava(this.config.version);
-    if (this._javaPath && this._javaMajor >= minimum && !forcedMajor) return this._javaPath;
+    const pinnedJava=['forge','neoforge'].includes(this.config.serverType);
+    if (this._javaPath && this._javaMajor >= minimum && (!pinnedJava || this._javaMajor===minimum) && !forcedMajor) return this._javaPath;
 
     // Verify the actual bundled runtime instead of assuming its Java major.
     if (!forcedMajor && process.env.DEVKIT_RESOURCES) {
@@ -112,7 +114,7 @@ class ServerManager {
         const result = spawnSync(bundled, ['-version'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
         const match = `${result.stdout || ''} ${result.stderr || ''}`.match(/version\s+"(\d+)(?:\.(\d+))?/);
         const major = match ? (Number(match[1]) === 1 ? Number(match[2]) : Number(match[1])) : 0;
-        if (major >= minimum && !(this.config.serverType === 'arclight' && minimum <= 21 && major > 21)) {
+        if (major >= minimum && (!pinnedJava || major===minimum) && !(this.config.serverType === 'arclight' && minimum <= 21 && major > 21)) {
           this.onLog(`[DevKit] 번들 JRE ${major} 사용`);
           this._javaPath = bundled;
           this._javaMajor = major;
@@ -134,6 +136,8 @@ class ServerManager {
         const minRequired = minimum;
         if (major < minRequired) {
           this.onLog(`[DevKit] Java ${major} 감지 — 이 서버는 Java ${minRequired} 이상이 필요합니다. 내부 JRE로 대체합니다.`);
+        } else if (pinnedJava && major!==minimum) {
+          this.onLog(`[DevKit] ${this.config.serverType} ${this.config.version}용 Java ${minimum}을 사용합니다. 내부 런타임을 준비합니다.`);
         } else if (forgeType && major > 21) {
           this.onLog(`[DevKit] Java ${major} 감지 — Arclight는 Java 21까지 지원합니다. 내부 JRE 21로 대체합니다.`);
         } else {
@@ -227,7 +231,8 @@ class ServerManager {
     const savedVer  = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
 
     // 버전이 바뀌었으면 기존 jar 삭제 후 재설치
-    if (savedVer !== this.config.version && await fs.pathExists(launchJar)) {
+    const expectedVersion=this.config.loaderVersion?`${this.config.version}:${this.config.loaderVersion}`:this.config.version;
+    if (savedVer !== expectedVersion && await fs.pathExists(launchJar)) {
       this.onLog(`[DevKit] Fabric 버전 변경 (${savedVer} → ${this.config.version}), 재설치 중...`);
       await fs.remove(launchJar);
     }
@@ -252,13 +257,14 @@ class ServerManager {
       const proc = spawn(javaPath, [
         '-jar', 'fabric-installer.jar',
         'server', '-mcversion', this.config.version, '-downloadMinecraft',
+        ...(this.config.loaderVersion?['-loader',this.config.loaderVersion]:[]),
       ], { cwd: this._dir, stdio: ['pipe', 'pipe', 'pipe'] });
       proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`, 'stdout')));
       proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => this.onLog(`[Fabric] ${l}`, 'stderr')));
       proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Fabric 설치 실패 (exit ${code})`)));
       proc.on('error', reject);
     });
-    await fs.writeFile(verFile, this.config.version);
+    await fs.writeFile(verFile, expectedVersion);
     this.onLog('[DevKit] Fabric 설치 완료 ✓');
   }
 
@@ -598,12 +604,16 @@ class ServerManager {
       await fs.writeFile(path.join(this._dir, 'eula.txt'), 'eula=true\n');
       await this._writeServerProps();
 
-      let jarArgs;
+      let jarArgs, loaderArgs;
       if (this.config.serverType === 'fabric') {
         await this._ensureFabric();
         await this._ensureFabricPerfMods();
         jarArgs = ['fabric-server-launch.jar', 'nogui'];
         this.onLog('[DevKit] Fabric 서버 시작 중...');
+      } else if (['forge','neoforge'].includes(this.config.serverType)) {
+        const runtime=await ensureRuntime(this._dir,this.config.serverType,this.config.version,this.config.loaderVersion||'',javaPath,this.onLog);
+        this._loaderVersion=runtime.version;
+        loaderArgs=runtime.target.kind==='args'?[`@${runtime.target.path}`,'nogui']:['-jar',runtime.target.path,'nogui'];
       } else if (this.config.serverType === 'vanilla') {
         await this._ensureVanilla();
         jarArgs = ['server.jar', '--nogui'];
@@ -660,9 +670,9 @@ class ServerManager {
           `-Xmx${this.config.memory}`,
           `-Xms${this.config.memory}`,
           ...aikarFlags,
-          '-jar', ...jarArgs,
+          ...(loaderArgs || ['-jar', ...jarArgs]),
         ],
-        { cwd: this._dir, stdio: ['pipe', 'pipe', 'pipe'] }
+        { cwd: this._dir, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true }
       );
     } catch (err) {
       this.status = 'stopped';
@@ -755,6 +765,10 @@ class ServerManager {
     if (this.status !== 'stopped') throw new Error('서버를 중지한 뒤 업데이트하세요.');
     this.status = 'updating';
     const type = this.config.serverType;
+    if(['forge','neoforge'].includes(type)) {
+      try{await ensureRuntime(this._dir,type,this.config.version,this.config.loaderVersion||'',await this._ensureJava(),this.onLog,{force:true});}
+      finally{this.status='stopped';}return;
+    }
     const prefix = type === 'cardboard' ? 'fabric' : type === 'paper' ? 'paper' : type;
     const jar = prefix === 'fabric' ? 'fabric-server-launch.jar' : prefix === 'vanilla' ? 'server.jar' : `${prefix}.jar`;
     const files = [jar, `.${prefix}-version`, '.paper-build.json'];

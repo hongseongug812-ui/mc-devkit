@@ -13,6 +13,7 @@ console.log('Starting isolated renderer smoke test');
 let server;
 app.whenReady().then(async () => {
   await fs.ensureDir(root);
+  await fs.emptyDir(path.join(root,'packs'));
   await fs.writeJson(path.join(root,'config.json'),{serverDir:path.join(root,'servers'),serverFolder:'shoot',serverType:'fabric',paperVersion:'26.3',memory:'4G',projectDir:path.join(root,'project')});
   await fs.writeJson(path.join(root,'profiles.json'),{
     '콘텐츠 촬영 서버':{serverDir:path.join(root,'servers'),serverFolder:'shoot',serverType:'fabric',paperVersion:'26.3',memory:'4G'},
@@ -24,6 +25,7 @@ app.whenReady().then(async () => {
   const errors=[];
   ipcMain.handle('owner-token',()=>service.getOwnerToken());
   ipcMain.handle('sync-list',()=>[]);
+  ipcMain.handle('launcher-profiles',()=>[{key:'a'.repeat(32),name:'촬영 게임',minecraft:'26.3',loader:'fabric',loaderVersion:'0.18.4',launcher:'official'}]);
   const window=new BrowserWindow({show:false,width:1440,height:940,webPreferences:{preload:process.env.DEVKIT_TEST_ASAR ? path.join(process.env.DEVKIT_TEST_ASAR,'preload.js') : path.resolve(__dirname,'../preload.js'),contextIsolation:true,nodeIntegration:false}});
   window.webContents.on('console-message',(_,level,message)=>{if(level===3 && !message.includes('ERR_'))errors.push(message);});
   await window.loadURL(`http://localhost:${server.address().port}`);
@@ -45,20 +47,36 @@ app.whenReady().then(async () => {
   await window.webContents.executeJavaScript('openProfileWorkspace("tab-settings")');
   await waitFor('document.getElementById("cfgVersion").value === "26.3"');
   await capture('settings.png');
+  if(!await window.webContents.executeJavaScript('JSON.stringify([...document.getElementById("cfgServerType").options].map(o=>o.value).sort()) === JSON.stringify(["paper","fabric","forge","neoforge","vanilla","arclight","cardboard"].sort())'))throw Error('Existing or new server types missing');
   await window.webContents.executeJavaScript('document.getElementById("cfgMemory").value="6G";saveSettingsPanel()');
   const saved=await fs.readJson(path.join(root,'config.json'));
   if(saved.memory!=='6G')throw Error('Settings did not persist');
   await window.webContents.executeJavaScript('openProfileWorkspace("tab-pack");loadPackPanel()');
   await waitFor('document.getElementById("packSource").value.length > 0');
   await capture('modpack.png');
+  const {fabric}=require('../test/jar-fixture');
+  const source=await window.webContents.executeJavaScript('document.getElementById("packSource").value');
+  await fs.outputFile(path.join(source,'creator.jar'),fabric());
+  await window.webContents.executeJavaScript('document.getElementById("packAuto").checked=false;document.getElementById("packLoaderVersion").value="0.18.4";publishPack()');
+  await waitFor('selectedPack?.pending?.validation.errors.length === 0');
+  if(await window.webContents.executeJavaScript('!!selectedPack.manifest'))throw Error('Review published before approval');
+  await capture('review.png');
+  await window.webContents.executeJavaScript('approvePack()');
+  await waitFor('!!selectedPack.manifest');
+  await window.webContents.executeJavaScript('toggleFilming()');
+  await waitFor('selectedPack.mode === "filming"');
+  await capture('filming.png');
   await window.webContents.executeJavaScript('closeProfileWorkspace();openJoinModal()');
   await capture('join.png');
+  await waitFor('document.getElementById("joinProfile").options.length === 2');
+  await window.webContents.executeJavaScript('renderSubscriptions([{key:"test",name:"촬영 서버",minecraft:"26.3",loader:"fabric",syncConfig:true,enabled:true,status:"pending",message:"게임 시작 시 승인 배포를 자동 적용합니다.",modsDir:"C:/Games/Creator/mods"}])');
+  if(!await window.webContents.executeJavaScript('document.querySelector(".game-start").textContent.includes("게임 시작")'))throw Error('Participant play button missing');
   await window.webContents.executeJavaScript('closeJoinModal();openProfileWorkspace("tab-team")');
   await capture('team.png');
   await window.webContents.executeJavaScript('openSrvPropModal()');
   await capture('properties.png');
   if(errors.length)throw Error(errors.join('\n'));
-  console.log('Renderer smoke test passed: home, owner auth, profile load, settings save, modpack and join views.');
+  console.log('Renderer smoke test passed: owner auth, settings, review/approve/filming, launcher profiles and participant play button.');
   window.destroy();
 }).catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{
   if(server)await server.shutdown();

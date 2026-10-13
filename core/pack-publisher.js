@@ -33,7 +33,7 @@ class PackPublisher {
   }
 
   async channel(config, name) {
-    const key = JSON.stringify([config.serverDir, config.serverFolder, config.serverType, config.paperVersion]);
+    const key = JSON.stringify([config.serverDir, config.serverFolder, config.serverType, config.paperVersion,config.loaderVersion||'']);
     if (this.channelLocks.has(key)) return this.channelLocks.get(key);
     const task = this.getChannel(config, name);
     this.channelLocks.set(key, task);
@@ -41,8 +41,9 @@ class PackPublisher {
   }
 
   async getChannel(config, name) {
-    const key = sha256(JSON.stringify([path.resolve(config.serverDir).toLowerCase(),
-      config.serverFolder || config.serverType, config.serverType, config.paperVersion]));
+    const identity=[path.resolve(config.serverDir).toLowerCase(),config.serverFolder || config.serverType, config.serverType, config.paperVersion];
+    if(config.loaderVersion)identity.push(config.loaderVersion);
+    const key = sha256(JSON.stringify(identity));
     await fs.ensureDir(this.root);
     for (const id of await fs.readdir(this.root)) {
       if (!/^[a-f0-9]{32}$/.test(id)) continue;
@@ -51,7 +52,7 @@ class PackPublisher {
     }
     const channel = { id: crypto.randomBytes(16).toString('hex'), key,
       token: crypto.randomBytes(32).toString('hex'), name: String(name || config.serverFolder || '내 서버').slice(0, 200),
-      minecraft: config.paperVersion, loader: config.serverType === 'arclight' ? 'forge'
+      minecraft: config.paperVersion, loader: ['forge','neoforge'].includes(config.serverType) ? config.serverType : config.serverType === 'arclight' ? 'forge'
         : ['fabric', 'cardboard'].includes(config.serverType) ? 'fabric' : 'none',
       sourceDir: path.resolve(config.serverDir, config.serverFolder || config.serverType, 'client-mods'), patterns: ['*.jar'], autoPublish: false };
     await this.save(channel);
@@ -144,7 +145,7 @@ class PackPublisher {
   }
 
   async authorized(id, token) {
-    if (!/^[a-f0-9]{32}$/.test(id) || typeof token !== 'string') return false;
+    if (!/^[a-f0-9]{32}$/.test(id) || typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return false;
     const channel = await fs.readJson(path.join(this.root, id, 'channel.json')).catch(() => null);
     if (!channel || token.length !== channel.token.length) return false;
     return crypto.timingSafeEqual(Buffer.from(channel.token), Buffer.from(token));

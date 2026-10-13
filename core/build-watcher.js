@@ -33,10 +33,11 @@ class BuildWatcher {
   async _detectArtifactKind() {
     const res = path.join(this.config.projectDir, 'src', 'main', 'resources');
     if (await fs.pathExists(path.join(res, 'fabric.mod.json'))) return 'mod';
+    if (await fs.pathExists(path.join(res,'META-INF','mods.toml')) || await fs.pathExists(path.join(res,'META-INF','neoforge.mods.toml'))) return 'mod';
     if (await fs.pathExists(path.join(res, 'paper-plugin.yml'))) return 'plugin-modern';
     if (await fs.pathExists(path.join(res, 'plugin.yml'))) return 'plugin-legacy';
     // 판별 불가 → 서버 타입으로 폴백 (순수 fabric이면 mod, 그 외엔 레거시 플러그인으로 간주)
-    return this.config.serverType === 'fabric' ? 'mod' : 'plugin-legacy';
+    return ['fabric','forge','neoforge'].includes(this.config.serverType) ? 'mod' : 'plugin-legacy';
   }
 
   // ── 심링크 생성 (Windows는 복사 폴백) ───────────────────────────────────────
