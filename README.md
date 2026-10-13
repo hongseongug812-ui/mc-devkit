@@ -7,9 +7,14 @@
 
 ## 주요 기능
 
+- **콘텐츠 팀 모드팩 동기화** — 서버·게임 버전별 참가 링크, 참가자 모드 자동 교체, 해시 검증·백업·게임 종료 후 적용 ([사용법](docs/modpack-sync.md))
+- **Studio UI** — 서버 카드, 넓은 설정 화면, 모드팩 배포와 참가 서버 관리
+- **최신 서버 버전 대응** — 종류별 릴리스 목록 새로고침, Paper 안정 빌드 검증, Minecraft 26.x Java 25 자동 준비
+
 - **서버 관리** — Fabric / Paper / Vanilla 지원, 원클릭 시작·중지·재시작
 - **외부 접속** — playit.gg 연동, 포트포워딩 없이 외부 접속 가능 (무료)
 - **팀 관리** — Owner / Admin / Member / Viewer 권한 분리, 동시 접속 지원
+  신규 멤버는 기본적으로 서버 제어 권한이 없으며 호스트가 권한을 부여합니다.
 - **모드 / 플러그인** — .jar 드래그앤드롭 업로드
 - **성능 최적화** — Aikar's JVM 플래그 자동 적용, Lithium·FerriteCore 자동 설치
 - **실시간 모니터링** — TPS·핑 실시간 표시, 로그 필터
@@ -20,9 +25,11 @@
 
 ## 다운로드
 
-[MC DevKit v1.7.20 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.7.20/MC-DevKit-Setup-1.7.20.exe)
+[MC DevKit v1.8.0 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.8.0/MC-DevKit-Setup-1.8.0.exe)
 
 > Windows 전용 / 설치 후 바탕화면 MC DevKit 실행
+
+설치된 앱은 시작할 때 업데이트를 확인하고 새 버전을 자동 다운로드합니다. 다운로드가 끝나면 **재시작**을 선택하거나 앱을 **완전 종료**해 업데이트를 설치할 수 있습니다. 창의 X 버튼은 트레이로 숨기며 앱을 종료하지 않습니다.
 
 ---
 

@@ -4,7 +4,7 @@ const fs   = require('fs-extra');
 const os   = require('os');
 const path = require('path');
 
-const DEFAULT_LOG_DIR = path.join(os.homedir(), '.mc-devkit', 'logs');
+const DEFAULT_LOG_DIR = path.join(process.env.DEVKIT_DATA_DIR || path.join(os.homedir(), '.mc-devkit'), 'logs');
 const LOG_FILE_RE = /^devkit-\d{4}-\d{2}-\d{2}\.log$/;
 
 function redactText(value) {

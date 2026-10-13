@@ -735,6 +735,8 @@
     #srvPropModal .modal-box::-webkit-scrollbar { width: 6px; }
     #srvPropModal .modal-box::-webkit-scrollbar-thumb { background: #555; }
   </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="stylesheet" href="/studio.css"/>
 </head>
 <body>
 
@@ -744,7 +746,9 @@
 <div id="titlebar">
   <div class="titlebar-left">
     <span class="mc-logo">MC DevKit</span>
+    <span class="studio-tag">CREATOR STUDIO</span>
     <span id="appVersion" style="font-size:10px;color:var(--mc-gray);margin-left:2px;"></span>
+    <button class="mc-btn xs" onclick="checkForUpdates()" title="업데이트 확인" style="padding:1px 6px;font-size:10px;">⟳</button>
     <span id="serverBadge" class="mc-badge badge-stopped">OFFLINE</span>
   </div>
   <div class="titlebar-right">
@@ -762,8 +766,20 @@
 
   <!-- ── 프로필 홈 (서버 선택 화면, 전체 폭) ── -->
   <div id="profileHomeView" class="profile-home">
-    <div class="profile-home-title">서버 프로필</div>
+    <div class="home-heading">
+      <div><div class="eyebrow">YOUR CREATIVE WORKSPACE</div>
+        <div class="profile-home-title">함께 만드는 마인크래프트</div>
+        <p class="subtle">촬영 서버와 모드를 한곳에서 관리하세요. 팀원은 한 번 참가하면 업데이트를 자동으로 받습니다.</p>
+      </div>
+      <div class="home-actions">
+        <button class="mc-btn" onclick="openJoinModal()">서버 참가</button>
+        <button class="mc-btn t-green" onclick="openProfileNew()">＋ 서버 만들기</button>
+      </div>
+    </div>
+    <div class="section-heading"><h2>내가 관리하는 서버</h2><span>서버 · 게임 버전별 독립 작업 공간</span></div>
     <div id="profileGrid" class="profile-grid"></div>
+    <div class="section-heading"><h2>참가 중인 서버</h2><span>앱 실행 중 15초마다 모드팩 확인</span></div>
+    <div id="syncGrid" class="sync-grid"><div class="empty-state">호스트의 참가 링크로 서버에 연결하세요.<br>공식 런처 · CurseForge · Modrinth의 게임 폴더를 지원합니다.</div></div>
   </div>
 
   <!-- ── 사이드바 (선택된 서버의 작업 공간) ── -->
@@ -772,13 +788,15 @@
       <div class="mc-row" style="margin-bottom:8px;">
         <button class="mc-btn xs" onclick="closeProfileWorkspace()">◀ 프로필 목록</button>
       </div>
+      <div class="workspace-heading"><div id="workspaceTitle">서버 작업 공간</div><div id="workspaceEnvironment" class="subtle">설정과 참가자 모드팩을 관리하세요.</div></div>
 
     <!-- 탭 내비게이션 -->
     <div class="tab-nav">
-      <button class="tab-btn active" onclick="switchTab(this,'tab-server')">🖥️ 서버</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-files')">📦 파일</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-settings')">⚙️ 설정</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-team')">👥 팀</button>
+      <button class="tab-btn active" onclick="switchTab(this,'tab-server')">서버</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-files')">파일</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-pack');loadPackPanel()">모드팩</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-settings')">설정</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-team')">팀·접속</button>
     </div>
 
     <!-- ─ 탭 1: 서버 ─ -->
@@ -864,6 +882,38 @@
 
     </div>
 
+    <div id="tab-pack" class="tab-panel" style="display:none">
+      <div class="mc-section">
+        <div class="mc-section-title">참가자 모드팩 배포</div>
+        <p class="subtle">이 서버와 게임 버전 전용 배포입니다. 참가자에게 필요한 모드만 배포 폴더에 넣으세요.</p>
+        <div class="form-heading">배포 환경</div>
+        <div id="packVersion" class="status-note"></div>
+        <label class="mc-label" for="packLoader">참가자 게임 로더</label>
+        <select id="packLoader" class="mc-inp"><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="none">없음 (Vanilla)</option></select>
+        <div class="field-hint">참가자는 이 버전과 로더를 런처에 설치해야 합니다.</div>
+        <div class="form-heading">클라이언트 모드 폴더</div>
+        <div class="mc-row" style="margin-top:10px"><input id="packSource" class="mc-inp" readonly aria-label="배포 모드 폴더"/><button class="mc-btn xs" onclick="pickDir('packSource')">찾기</button></div>
+        <button class="mc-btn xs" style="margin-top:8px" onclick="useServerMods()">서버 mods 폴더를 배포 원본으로 사용</button>
+        <div class="field-hint">기본: 서버 프로필 / client-mods. 서버 전용 모드는 넣지 마세요. 제작 모드와 Fabric API 등 의존 모드를 함께 넣으세요.</div>
+        <label class="mc-label" for="packPatterns" style="margin-top:12px">배포할 모드 파일 규칙</label>
+        <input id="packPatterns" class="mc-inp" value="*.jar" placeholder="creator-*.jar, fabric-api-*.jar"/>
+        <div class="field-hint">쉼표로 구분하고 *는 모든 문자를 뜻합니다. 서버 mods 폴더를 사용한다면 참가자에게 필요한 공용 모드만 지정하세요.</div>
+        <label class="check-row"><input id="packAuto" type="checkbox" checked/>폴더 변경 시 자동 배포</label>
+        <button id="publishPackBtn" class="mc-btn t-green" onclick="publishPack()">모드팩 배포 · 자동 배포 설정 저장</button>
+        <div id="packStatus" class="status-note" role="status"></div>
+        <div id="packFiles" class="pack-file-list"></div>
+      </div>
+      <div class="mc-section">
+        <div class="mc-section-title">팀원 초대</div>
+        <p class="subtle">모드팩을 배포한 후 공유 링크를 복사하세요. 이 링크는 모드 다운로드만 허용합니다.</p>
+        <label class="mc-label" for="packBase" style="margin-top:12px">공유 서버 주소</label>
+        <input id="packBase" class="mc-inp" placeholder="https://…trycloudflare.com"/>
+        <div class="field-hint">상단 ‘터널 켜기’로 관리 서버를 공유하세요. Minecraft용 playit 주소와는 별도입니다. 공유 터널을 다시 시작하면 새 링크를 전달하세요.</div>
+        <button class="mc-btn" style="margin-top:12px" onclick="copyPackInvite()">참가 링크 복사</button>
+        <div id="packInviteStatus" class="status-note" role="status"></div>
+      </div>
+    </div>
+
     <!-- ─ 탭 3: 설정 ─ -->
     <div id="tab-settings" class="tab-panel" style="display:none">
 
@@ -897,6 +947,7 @@
                 <option value="fabric">Fabric (모드)</option>
                 <option value="arclight">Arclight (모드+플러그인)</option>
                 <option value="cardboard">Cardboard (모드+플러그인)</option>
+                <option value="vanilla">Vanilla (기본 서버)</option>
               </select>
             </div>
             <div class="mc-grid2">
@@ -905,6 +956,7 @@
                 <select id="cfgVersion" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
                   <option>로딩 중...</option>
                 </select>
+                <button class="mc-btn xs" style="margin-top:7px" onclick="loadVersionList(document.getElementById('cfgVersion').value,true)">버전 목록 새로고침</button>
               </div>
               <div>
                 <label class="mc-label">메모리</label>
@@ -914,8 +966,9 @@
                 </select>
               </div>
             </div>
+            <div class="form-heading">실행 환경</div>
             <div>
-              <label class="mc-label">렌더 거리 (청크)</label>
+              <label class="mc-label">시야 거리 (청크)</label>
               <select id="cfgViewDistance" class="mc-inp" style="font-size:11px;padding:7px 22px 7px 7px;">
                 <option value="4">4</option>
                 <option value="6">6</option>
@@ -934,6 +987,7 @@
                 <button class="mc-btn xs" onclick="pickDir('cfgServer')" style="width:auto;flex-shrink:0;">찾기</button>
               </div>
             </div>
+            <div class="form-heading plugin-only">제작 프로젝트</div>
             <div class="plugin-only">
               <label class="mc-label">플러그인 이름</label>
               <input id="cfgPlugin" type="text" class="mc-inp"/>
@@ -945,7 +999,10 @@
                 <button class="mc-btn xs" onclick="pickDir('cfgProject')" style="width:auto;flex-shrink:0;">찾기</button>
               </div>
             </div>
-            <button class="mc-btn sm" onclick="saveSettingsPanel()">설정 저장</button>
+            <div id="versionHint" class="field-hint"></div>
+            <button class="mc-btn sm" onclick="updateServerRuntime()">서버 실행 파일 업데이트</button>
+            <div class="field-hint">서버를 중지한 상태에서 설치 파일을 갱신합니다. 게임 버전 변경은 새 프로필을 만들어 분리하세요.</div>
+            <div class="save-bar"><button class="mc-btn t-green sm" onclick="saveSettingsPanel()">설정 저장</button></div>
             <button class="mc-btn sm" onclick="openSrvPropModal()" style="margin-top:4px;">서버 세부 설정 ▶</button>
           </div>
         </div>
@@ -1069,6 +1126,22 @@
 </div>
 
 <!-- ── 인증 모달 ── -->
+<div id="joinModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeJoinModal()">
+  <div class="modal-box">
+    <div class="eyebrow">JOIN YOUR TEAM</div><div class="modal-title">서버에 참가하기</div>
+    <p class="subtle" style="margin-bottom:20px">한 번 연결하면 호스트의 모드 업데이트를 자동으로 받습니다.</p>
+    <div class="mc-col">
+      <div><label class="mc-label" for="joinInvite">호스트의 참가 링크</label><input id="joinInvite" class="mc-inp" placeholder="https://…/?join=…#token=…"/></div>
+      <div><label class="mc-label" for="joinLauncher">사용하는 런처</label><select id="joinLauncher" class="mc-inp"><option value="official">Minecraft 공식 런처</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option><option value="other">Prism / MultiMC / 기타</option></select></div>
+      <div class="notice">공식 런처: 설치 설정 → 게임 디렉터리를 서버별로 지정하세요.<br>CurseForge · Modrinth: 해당 프로필의 ‘폴더 열기’에서 게임 폴더를 확인하세요.<br>다음 단계에서 <b>mods 폴더의 상위 게임 폴더</b>를 선택합니다. 서버별로 별도 폴더를 사용하세요.</div>
+      <div class="field-hint">처음 연결한 호스트가 배포하는 .jar 모드가 자동 설치됩니다. 게임 실행 중에는 적용을 기다리며, 기존 개인 모드는 덮어쓰지 않습니다.</div>
+      <div id="joinStatus" class="status-note" role="status"></div>
+      <div class="mc-row"><button class="mc-btn" onclick="closeJoinModal()">닫기</button><button id="joinBtn" class="mc-btn t-green" onclick="joinPack()">게임 폴더 선택 · 참가</button></div>
+    </div>
+  </div>
+</div>
+<div id="toast" role="status" style="display:none"></div>
+
 <div id="authModal" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <div class="modal-title">MC DevKit 접속</div>
@@ -1263,6 +1336,16 @@ const PERM_ACTIONS = [
 let ws = null, myRole = null, tunnelUrl = null, allLogs = [], myToken = null, stdinMode = false;
 let _pingTimer = null;
 const isElectron = typeof window.devkit !== 'undefined';
+const originalFetch = window.fetch.bind(window);
+window.fetch = (input, options = {}) => {
+  const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+  if (myToken && url.origin === location.origin && url.pathname.startsWith('/api/')) {
+    const headers = new Headers(options.headers || (input instanceof Request ? input.headers : undefined));
+    headers.set('X-DevKit-Token', myToken);
+    options = { ...options, headers };
+  }
+  return originalFetch(input, options);
+};
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1271,9 +1354,10 @@ function connect() {
     if (isElectron) {
       // Electron 앱 = 로컬 소유자 → /api/status에서 owner 토큰 받아 자동 인증
       try {
-        const status = await fetch('/api/status').then(r => r.json());
+        const ownerToken = await window.devkit.ownerToken();
+        myToken = ownerToken;
         const name   = localStorage.getItem('devkit_name') || 'Owner';
-        ws.send(JSON.stringify({ type: 'AUTH', name, token: status.ownerToken }));
+        ws.send(JSON.stringify({ type: 'AUTH', name, token: ownerToken }));
       } catch {
         document.getElementById('authModal').style.display = 'flex';
       }
@@ -1301,7 +1385,7 @@ function handle(msg) {
     case 'AUTH_OK': {
       myRole  = msg.role;
       myToken = msg.token;
-      localStorage.setItem('devkit_token', msg.token);
+      if (!isElectron) localStorage.setItem('devkit_token', msg.token);
       document.getElementById('authModal').style.display = 'none';
       if (msg.permissions) syncPermissions(msg.permissions);
       applyRole();
@@ -1324,6 +1408,7 @@ function handle(msg) {
     case 'MC_ADDRESS':     setMcAddr(msg.address);                        break;
     case 'PLAYIT_CLAIM':  showPlayitClaim(msg.url);                      break;
     case 'PLAYERS_UPDATE': renderPlayers(msg.players || []);             break;
+    case 'PACK_PUBLISHED': if (typeof loadPackPanel === 'function' && document.getElementById('tab-pack').style.display !== 'none') loadPackPanel(); break;
     case 'SERVER_CRASH':
       appendLog('[DevKit] ⚠ 서버 비정상 종료 — 10초 후 자동 재시작...', 'error');
       renderPlayers([]);
@@ -1749,17 +1834,26 @@ async function uploadWorld(input) {
 }
 
 function switchTab(btn, panelId) {
+  const layout = document.querySelector('.layout');
+  layout.classList.toggle('full-view', ['tab-settings','tab-pack','tab-team'].includes(panelId));
+  layout.classList.toggle('settings-view', panelId === 'tab-settings');
+  layout.classList.toggle('pack-view', panelId === 'tab-pack');
+  layout.classList.toggle('team-view', panelId === 'tab-team');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
   btn.classList.add('active');
   document.getElementById(panelId).style.display = '';
 }
 
-async function startTunnel() { await fetch('/api/tunnel/start', { method:'POST' }); }
+async function startTunnel() {
+  const response = await fetch('/api/tunnel/start', { method:'POST' });
+  if (!response.ok) { const data = await response.json(); showToast(data.error || '공유 터널 시작 실패', true); }
+}
 async function stopTunnel()  { await fetch('/api/tunnel/stop',  { method:'POST' }); setTunnel(null); }
 
 function setTunnel(url) {
   tunnelUrl = url;
+  document.getElementById('packBase').value = url || '';
   document.getElementById('tunnelChip').textContent = url || '터널 없음';
   const inv = document.getElementById('inviteUrl');
   inv.textContent  = url || '터널 시작 후 URL 표시';
@@ -1784,7 +1878,7 @@ async function pickDir(id) {
   if (dir) document.getElementById(id).value = dir;
 }
 
-function onServerTypeChange() {
+function onServerTypeChange(reloadVersions = true) {
   const type      = document.getElementById('cfgServerType').value;
   const isFabric  = type === 'fabric';
   const isArclight= type === 'arclight';
@@ -1804,21 +1898,23 @@ function onServerTypeChange() {
   });
 
   const cur = document.getElementById('cfgVersion').value;
-  loadVersionList(cur === '로딩 중...' ? null : cur);
+  if (reloadVersions) loadVersionList(null);
   if (isFabric || isHybrid) loadMods();
   if (isPaper  || isHybrid) loadPlugins();
 }
 
 async function saveServerProperties() {
   const vd = document.getElementById('cfgViewDistance').value;
-  return fetch('/api/server-properties', {
+  const response = await fetch('/api/server-properties', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ 'view-distance': vd }),
   });
+  if (!response.ok) { const data = await response.json(); throw new Error(data.error || '서버 설정 저장 실패'); }
+  return response;
 }
 
 async function saveConfig({ saveProperties = true } = {}) {
-  await fetch('/api/config', {
+  const response = await fetch('/api/config', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       pluginName:   document.getElementById('cfgPlugin').value,
@@ -1829,8 +1925,10 @@ async function saveConfig({ saveProperties = true } = {}) {
       serverType:   document.getElementById('cfgServerType').value,
     }),
   });
+  if (!response.ok) { const data = await response.json(); throw new Error(data.error || '설정 저장 실패'); }
   if (saveProperties) await saveServerProperties();
   appendLog('[DevKit] 설정 저장됨', 'devkit');
+  if (typeof showToast === 'function') showToast('서버 설정을 저장했습니다.');
 }
 
 // ── 서버 프로필 ──────────────────────────────────────────────────────────────
@@ -1860,17 +1958,18 @@ async function loadProfiles() {
     const ver  = p.paperVersion || '';
     const mem  = p.memory || '';
     const jn   = escAttr(JSON.stringify(name));
-    const thumbStyle = p.image
-      ? `background-image:url('${p.image}');background-size:cover;background-position:center;`
+    const safeImage = typeof p.image === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(p.image) ? p.image : null;
+    const thumbStyle = safeImage
+      ? `background-image:url('${safeImage}');background-size:cover;background-position:center;`
       : `background:${meta.bg}`;
     return `<div class="profile-card" onclick="loadProfile(${jn})" title="${escAttr(name)} 불러오기">
       <div class="profile-thumb" style="${thumbStyle}">
-        ${p.image ? '' : `<span style="filter:drop-shadow(0 2px 4px #000)">${meta.icon}</span>`}
-        ${ver ? `<div class="profile-ver-badge">${ver}</div>` : ''}
+        ${safeImage ? '' : `<span style="filter:drop-shadow(0 2px 4px #000)">${meta.icon}</span>`}
+        ${ver ? `<div class="profile-ver-badge">${esc(ver)}</div>` : ''}
       </div>
       <div class="profile-info">
         <div class="profile-name">${esc(name)}</div>
-        <div class="profile-sub">${meta.label} · ${mem}</div>
+        <div class="profile-sub">${meta.label} · ${esc(mem)}</div>
       </div>
       <div class="profile-del" onclick="event.stopPropagation();deleteProfile(${jn})">✕</div>
     </div>`;
@@ -1921,6 +2020,7 @@ function openProfileWorkspace(tabId) {
 }
 
 function closeProfileWorkspace() {
+  document.querySelector('.layout').classList.remove('full-view','settings-view','pack-view','team-view');
   document.getElementById('sidebarView').style.display     = 'none';
   document.getElementById('logPanelWrap').style.display     = 'none';
   document.getElementById('profileHomeView').style.display = 'block';
@@ -1931,6 +2031,7 @@ function closeProfileWorkspace() {
 
 function openProfileNew() {
   currentProfileName  = null;
+  document.getElementById('workspaceTitle').textContent = '새 서버 만들기';
   currentProfileImage = null;
   updateProfileImagePreview();
   openProfileWorkspace('tab-settings');
@@ -1984,8 +2085,9 @@ async function saveSettingsPanel() {
 
 async function loadProfile(name) {
   const r = await fetch(`/api/profiles/${encodeURIComponent(name)}/load`, { method: 'POST' });
-  if (!r.ok) { const e = await r.json(); appendLog(`[DevKit] 불러오기 실패: ${e.error}`, 'error'); return; }
+  if (!r.ok) { const e = await r.json(); showToast(e.error, true); return; }
   appendLog(`[DevKit] 프로필 불러옴: ${name}`, 'devkit');
+  document.getElementById('workspaceTitle').textContent = name;
   await loadConfig();
   const profiles = await fetch('/api/profiles').then(r => r.json());
   currentProfileName  = name;
@@ -2013,16 +2115,18 @@ async function loadPermissions() {
   if (myRole === 'OWNER') renderPermMatrix(perms);
 }
 
-async function loadVersionList(selectedVersion) {
+let versionRequest = 0;
+async function loadVersionList(selectedVersion, refresh = false) {
+  const request = ++versionRequest;
   const sel  = document.getElementById('cfgVersion');
   const type = document.getElementById('cfgServerType').value;
-  const endpoint = type === 'fabric'    ? '/api/fabric-versions'
-                 : type === 'arclight'  ? '/api/arclight-versions'
-                 : type === 'cardboard' ? '/api/cardboard-versions'
-                 :                        '/api/paper-versions';
+  const endpoint = `/api/versions/${type}${refresh ? '?refresh=1' : ''}`;
   sel.innerHTML    = '<option>로딩 중...</option>';
   try {
-    const versions = await fetch(endpoint).then(r => r.json());
+    const response = await fetch(endpoint);
+    const versions = await response.json();
+    if (request !== versionRequest) return;
+    if (!response.ok) throw new Error(versions.error || '버전 목록을 불러올 수 없습니다.');
     if (!versions.length) throw new Error('empty');
 
     const groups = {};
@@ -2031,13 +2135,17 @@ async function loadVersionList(selectedVersion) {
       (groups[major] = groups[major] || []).push(v);
     });
 
-    sel.innerHTML = Object.keys(groups).reverse().map(g =>
+    if (selectedVersion && !versions.includes(selectedVersion)) groups['저장된 버전'] = [selectedVersion];
+    sel.innerHTML = Object.keys(groups).map(g =>
       `<optgroup label="${g}.x">${groups[g].map(v =>
         `<option${v === selectedVersion ? ' selected' : ''}>${v}</option>`
       ).join('')}</optgroup>`
     ).join('');
-  } catch {
-    sel.innerHTML = `<option selected>${selectedVersion || '1.21.4'}</option>`;
+    updateVersionHint();
+  } catch (e) {
+    if (request !== versionRequest) return;
+    sel.innerHTML = selectedVersion ? `<option selected>${esc(selectedVersion)}</option>` : '<option value="">목록을 다시 불러오세요</option>';
+    document.getElementById('versionHint').textContent = `버전 조회 실패: ${e.message}`;
   }
 }
 
@@ -2048,6 +2156,7 @@ async function loadConfig() {
   document.getElementById('cfgProject').value  = cfg.projectDir || '';
   document.getElementById('cfgServer').value   = cfg.serverDir  || '';
   document.getElementById('cfgBuildCmd').value = cfg.buildCmd   || '';
+  document.getElementById('cfgServerType').value = cfg.serverType || 'paper';
   await loadVersionList(cfg.paperVersion || '1.21.4');
   if (cfg.memory) {
     const mEl = document.getElementById('cfgMemory');
@@ -2056,7 +2165,7 @@ async function loadConfig() {
   if (cfg.serverType) {
     const stEl = document.getElementById('cfgServerType');
     [...stEl.options].forEach(o => { o.selected = (o.value === cfg.serverType); });
-    onServerTypeChange();
+    onServerTypeChange(false);
   }
   applyConnectionModeUI(cfg.connectionMode === 'portforward' ? 'portforward' : 'playit');
   try {
@@ -2264,6 +2373,16 @@ async function fetchPublicIp() {
     appendLog(`[DevKit] 공인 IP 조회 실패: ${e.message}`, 'error');
   } finally {
     input.placeholder = '예) xxx.joinmc.link:25565';
+  }
+}
+
+// ── 수동 업데이트 확인 ──────────────────────────────────────────────────────
+function checkForUpdates() {
+  if (window.devkit?.isElectron) {
+    window.devkit.checkForUpdates();
+    appendLog('[DevKit] 업데이트 확인 중...', 'devkit');
+  } else {
+    appendLog('[DevKit] 업데이트 확인은 데스크톱 앱(설치 버전)에서만 가능합니다.', 'error');
   }
 }
 
@@ -2563,8 +2682,9 @@ async function saveSrvProps() {
   }
 }
 
-init();
+init().catch(e => appendLog(`[DevKit] 초기화 실패: ${e.message}`, 'error'));
 connect();
 </script>
+<script src="/modpacks.js"></script>
 </body>
 </html>

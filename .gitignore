@@ -4,3 +4,4 @@ minecraft-server/
 .mc-devkit/
 resources/
 *.log
+.test-data/

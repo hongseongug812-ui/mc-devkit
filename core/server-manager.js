@@ -1,12 +1,13 @@
 'use strict';
 
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 const fs   = require('fs-extra');
 const path = require('path');
 const os   = require('os');
 const axios = require('axios');
+const crypto = require('crypto');
+const { requiredJava, paperBuild, USER_AGENT } = require('./versions');
 
-const PURPUR_API   = 'https://api.purpurmc.org/v2/purpur';
 const FABRIC_META  = 'https://meta.fabricmc.net/v2/versions/installer';
 const FABRIC_MAVEN = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer';
 const MOJANG_META  = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
@@ -100,22 +101,29 @@ class ServerManager {
   // ── Java 자동 확보 (번들 → 시스템 → 캐시 → Adoptium 다운로드) ──────────────
   // forcedMajor: 이전 실행에서 "Java N 이상 필요" 메시지를 감지한 경우 그 버전을 강제
   async _ensureJava(forcedMajor = null) {
-    if (this._javaPath && !forcedMajor) return this._javaPath;
+    const minimum = forcedMajor || requiredJava(this.config.version);
+    if (this._javaPath && this._javaMajor >= minimum && !forcedMajor) return this._javaPath;
 
-    // 0. 인스톨러에 번들된 JRE (배포 빌드 전용, 번들은 21 고정이라 강제 버전 요청 시엔 건너뜀)
+    // Verify the actual bundled runtime instead of assuming its Java major.
     if (!forcedMajor && process.env.DEVKIT_RESOURCES) {
       const bundled = path.join(process.env.DEVKIT_RESOURCES, 'jre', 'bin',
         process.platform === 'win32' ? 'java.exe' : 'java');
       if (await fs.pathExists(bundled)) {
-        this.onLog('[DevKit] 번들 JRE 21 사용');
-        this._javaPath = bundled;
-        return bundled;
+        const result = spawnSync(bundled, ['-version'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+        const match = `${result.stdout || ''} ${result.stderr || ''}`.match(/version\s+"(\d+)(?:\.(\d+))?/);
+        const major = match ? (Number(match[1]) === 1 ? Number(match[2]) : Number(match[1])) : 0;
+        if (major >= minimum && !(this.config.serverType === 'arclight' && minimum <= 21 && major > 21)) {
+          this.onLog(`[DevKit] 번들 JRE ${major} 사용`);
+          this._javaPath = bundled;
+          this._javaMajor = major;
+          return bundled;
+        }
       }
     }
 
     // 1. 시스템 Java 확인
     // Arclight(Forge 기반)은 Java 21까지만 안정 지원 → 초과 시 내부 JRE로 대체
-    const forgeType = this.config.serverType === 'arclight';
+    const forgeType = this.config.serverType === 'arclight' && requiredJava(this.config.version) <= 21;
     try {
       const out   = execSync('java -version 2>&1', { encoding: 'utf8' });
       const ver   = out.split('\n')[0];
@@ -123,7 +131,7 @@ class ServerManager {
       if (m) {
         const parts = m[1].split('.');
         const major = parts[0] === '1' ? parseInt(parts[1]) : parseInt(parts[0]);
-        const minRequired = forcedMajor || 17;
+        const minRequired = minimum;
         if (major < minRequired) {
           this.onLog(`[DevKit] Java ${major} 감지 — 이 서버는 Java ${minRequired} 이상이 필요합니다. 내부 JRE로 대체합니다.`);
         } else if (forgeType && major > 21) {
@@ -131,23 +139,18 @@ class ServerManager {
         } else {
           this.onLog(`[DevKit] 시스템 Java ${major} 사용`);
           this._javaPath = 'java';
+          this._javaMajor = major;
           return 'java';
         }
       }
     } catch {}
 
     // 2/3. 내부 JRE 확보 (캐시 재사용 또는 Adoptium 다운로드) — 강제 버전 없으면 기본 21
-    const wantMajor = forcedMajor || 21;
+    const wantMajor = forgeType ? 21 : minimum;
     const javaExe = await this._downloadJre(wantMajor);
     this._javaPath = javaExe;
+    this._javaMajor = wantMajor;
     return javaExe;
-  }
-
-  // ── Purpur 최신 빌드 번호 조회 ─────────────────────────────────────────────
-  async _getLatestBuild(version) {
-    const { data } = await axios.get(`${PURPUR_API}/${version}/latest`);
-    if (!data.build) throw new Error(`Paper(Purpur) ${version} 빌드를 찾을 수 없습니다.`);
-    return data.build;
   }
 
   // ── PlugManX 자동 설치 ──────────────────────────────────────────────────────
@@ -180,21 +183,16 @@ class ServerManager {
   }
 
   // ── Paper jar 확보 (번들 → 다운로드) ──────────────────────────────────────
-  async _ensurePaper() {
+  async _ensurePaper(forceDownload = false) {
     const jarPath  = path.join(this._dir, 'paper.jar');
     const verFile  = path.join(this._dir, '.paper-version');
     const savedVer = await fs.pathExists(verFile) ? (await fs.readFile(verFile, 'utf8')).trim() : null;
 
-    // 버전이 바뀌었으면 기존 jar 삭제 후 재다운로드
-    if (savedVer !== this.config.version && await fs.pathExists(jarPath)) {
-      this.onLog(`[DevKit] Paper 버전 변경 (${savedVer} → ${this.config.version}), 재다운로드 중...`);
-      await fs.remove(jarPath);
-    }
-
-    if (await fs.pathExists(jarPath)) return;
+    // Legacy Purpur installations stay intact until the user requests an update.
+    if (!forceDownload && savedVer === this.config.version && await fs.pathExists(jarPath)) return;
 
     // 번들 Paper 확인 (배포 빌드 전용, 버전이 일치할 때만)
-    if (process.env.DEVKIT_RESOURCES) {
+    if (!forceDownload && process.env.DEVKIT_RESOURCES) {
       const bundled = path.join(process.env.DEVKIT_RESOURCES, 'bundled',
         `paper-${this.config.version}.jar`);
       if (await fs.pathExists(bundled)) {
@@ -207,13 +205,19 @@ class ServerManager {
     }
 
     this.onLog(`[DevKit] Paper ${this.config.version} 다운로드 중...`);
-    const url = `${PURPUR_API}/${this.config.version}/latest/download`;
+    const build = await paperBuild(this.config.version);
+    const url = build.url;
 
     await fs.ensureDir(this._dir);
-    const resp = await axios.get(url, { responseType: 'arraybuffer' });
-    await fs.writeFile(jarPath, resp.data);
+    const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000,
+      headers: { 'User-Agent': USER_AGENT }, maxContentLength: 256 * 1024 * 1024 });
+    const expectedHash = build.checksums?.sha256 || build.sha256;
+    if (!expectedHash || crypto.createHash('sha256').update(resp.data).digest('hex') !== expectedHash) throw new Error('Paper 다운로드 검증 실패');
+    await fs.writeFile(`${jarPath}.download`, resp.data);
+    await fs.rename(`${jarPath}.download`, jarPath);
     await fs.writeFile(verFile, this.config.version);
-    this.onLog(`[DevKit] Paper 다운로드 완료 ✓`);
+    await fs.writeJson(path.join(this._dir, '.paper-build.json'), { version: this.config.version, build: build.id });
+    this.onLog(`[DevKit] Paper 다운로드 완료 ✓ (build ${build.id})`);
   }
 
   // ── Fabric 서버 설치 ────────────────────────────────────────────────────────
@@ -586,9 +590,8 @@ class ServerManager {
     this._javaRetryHandled = false;
     if (!forcedJavaMajor) this._javaRetryCount = 0;
 
-    await this._killOrphan();
-
     try {
+      await this._killOrphan();
       const javaPath = await this._ensureJava(forcedJavaMajor);
       await fs.ensureDir(this._dir);
       this.onLog(`[DevKit] 실행 구성: type=${this.config.serverType}, version=${this.config.version}, memory=${this.config.memory}, dir=${this._dir}, java=${javaPath}`);
@@ -748,6 +751,44 @@ class ServerManager {
   }
 
   // ── 서버 중지 ───────────────────────────────────────────────────────────────
+  async updateRuntime() {
+    if (this.status !== 'stopped') throw new Error('서버를 중지한 뒤 업데이트하세요.');
+    this.status = 'updating';
+    const type = this.config.serverType;
+    const prefix = type === 'cardboard' ? 'fabric' : type === 'paper' ? 'paper' : type;
+    const jar = prefix === 'fabric' ? 'fabric-server-launch.jar' : prefix === 'vanilla' ? 'server.jar' : `${prefix}.jar`;
+    const files = [jar, `.${prefix}-version`, '.paper-build.json'];
+    let backupDir;
+    try {
+      await fs.ensureDir(this._dir);
+      backupDir = path.join(this._dir, 'runtime-backups', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+      await fs.ensureDir(backupDir);
+      const existed = [];
+      for (const file of files) if (await fs.pathExists(path.join(this._dir, file))) {
+        existed.push(file);
+        await fs.copy(path.join(this._dir, file), path.join(backupDir, file));
+      }
+      // Removing only the marker asks the installer for a fresh build, without touching worlds.
+      await fs.remove(path.join(this._dir, `.${prefix}-version`));
+      try {
+        await this._ensureJava();
+        if (prefix === 'paper') await this._ensurePaper(true);
+        else if (prefix === 'fabric') await this._ensureFabric();
+        else if (prefix === 'vanilla') await this._ensureVanilla();
+        else if (prefix === 'arclight') await this._ensureArclight();
+        else throw new Error('지원하지 않는 서버 종류');
+      } catch (error) {
+        for (const file of files) {
+          const dest = path.join(this._dir, file);
+          if (existed.includes(file)) await fs.copy(path.join(backupDir, file), dest, { overwrite: true });
+          else await fs.remove(dest);
+        }
+        throw error;
+      }
+      this.onLog(`[DevKit] 서버 실행 파일 갱신 완료. 백업: ${backupDir}`);
+    } finally { this.status = 'stopped'; }
+  }
+
   async stop() {
     if (!this.process) throw new Error('실행 중인 서버가 없습니다.');
     this._stopping = true;

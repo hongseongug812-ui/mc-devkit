@@ -17,8 +17,11 @@ const BuildWatcher   = require('./core/build-watcher');
 const TunnelManager  = require('./core/tunnel-manager');
 const TeamManager    = require('./core/team-manager');
 const PlayitManager  = require('./core/playit-manager');
-const { logger }     = require('./core/diagnostic-logger');
+const { logger, redactText } = require('./core/diagnostic-logger');
 const APP_VERSION    = require('./package.json').version;
+const PackPublisher = require('./core/pack-publisher');
+const { listVersions } = require('./core/versions');
+const DATA_ROOT = process.env.DEVKIT_DATA_DIR || path.join(os.homedir(), '.mc-devkit');
 const {
   allocateProfileFolder,
   pathKey,
@@ -28,7 +31,7 @@ const {
 } = require('./core/profile-folders');
 
 // ── 설정 자동 저장/로드 ──────────────────────────────────────────────────
-const CONFIG_FILE = path.join(os.homedir(), '.mc-devkit', 'config.json');
+const CONFIG_FILE = path.join(DATA_ROOT, 'config.json');
 
 function loadSavedConfig() {
   try { return fs.readJsonSync(CONFIG_FILE); } catch { return {}; }
@@ -85,7 +88,7 @@ function inferLogLevel(line, source) {
 
 function publishLog(line, source = 'devkit') {
   logger[inferLogLevel(line, source)](source, line);
-  teamManager?.broadcastLog(line);
+  teamManager?.broadcastLog(redactText(line));
 }
 
 // ── 모듈 인스턴스 ─────────────────────────────────────────────────────────
@@ -164,9 +167,14 @@ const tunnelManager = new TunnelManager(
 
 const ngrokManager = new PlayitManager(
   (line) => publishLog(line, 'playit'),
-  (url)  => { teamManager?.broadcast({ type: 'PLAYIT_CLAIM', url }); },
+  (url)  => { teamManager?.broadcastOwner({ type: 'PLAYIT_CLAIM', url }); },
   (addr) => setMcAddress(addr, 'playit')
 );
+const packPublisher = new PackPublisher(path.join(DATA_ROOT, 'packs'),
+  manifest => {
+    publishLog(`[모드팩] ${manifest.name} · MC ${manifest.minecraft} · ${manifest.files.length}개 배포 완료`, 'modpack');
+    teamManager?.broadcast({ type: 'PACK_PUBLISHED', id: manifest.id, revision: manifest.revision });
+  }, error => publishLog(`[모드팩] 자동 배포 실패: ${error.message}`, 'modpack'));
 
 // REST API 권한 체크 미들웨어
 function requirePerm(perm) {
@@ -183,7 +191,7 @@ function requirePerm(perm) {
 
 // ── 서버 시작 (main.js에서 호출) ─────────────────────────────────────────
 function startServer(port) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const app = express();
     logger.info('app', 'http server initializing', { port, pid: process.pid });
 
@@ -219,7 +227,54 @@ function startServer(port) {
       });
       next();
     });
+
     app.use(express.json({ limit: '512mb' }));
+
+    // All mutations need an authenticated session. Pack invitations grant downloads only.
+    app.use('/api', (req, res, next) => {
+      if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/diagnostics/client-error') return next();
+      const client = teamManager.clients.get(req.headers['x-devkit-token']);
+      if (!client) return res.status(401).json({ error: '인증 필요' });
+      const restricted = /^\/(config|profiles|permissions|playit|mc-address|modpack|tunnel|ngrok|server-properties)(\/|$)/.test(req.path);
+      if (restricted && client.role !== 'OWNER') return res.status(403).json({ error: '서버 소유자만 설정을 변경할 수 있습니다.' });
+      const permission = req.path === '/server/update' ? 'restart' : req.path.startsWith('/server/') ? req.path.split('/')[2]
+        : req.path === '/build' ? 'build' : req.path === '/backup' ? 'world' : null;
+      if (permission && !(teamManager.roles[client.role] || []).includes(permission)) return res.status(403).json({ error: '권한이 없습니다.' });
+      next();
+    });
+
+    const packAuth = async (req, res, next) => {
+      if (!await packPublisher.authorized(req.params.id, req.headers['x-pack-token'])) return res.status(401).json({ error: '유효한 참가 링크가 필요합니다.' });
+      res.set('Cache-Control', 'no-store');
+      next();
+    };
+    app.get('/api/packs/:id/manifest', packAuth, async (req, res) => {
+      try { res.json(await packPublisher.manifest(req.params.id)); }
+      catch { res.status(404).json({ error: '호스트가 모드팩을 먼저 배포해야 합니다.' }); }
+    });
+    app.get('/api/packs/:id/files/:hash', packAuth, async (req, res) => {
+      try { res.sendFile(await packPublisher.object(req.params.id, req.params.hash)); }
+      catch { res.status(404).json({ error: '파일을 찾을 수 없습니다.' }); }
+    });
+    app.get('/api/modpack', requirePerm('kick'), async (req, res) => {
+      try {
+        const channel = await packPublisher.channel(CONFIG, req.query.name);
+        const manifest = await packPublisher.manifest(channel.id).catch(() => null);
+        res.json({ ...channel, serverModsDir: path.join(activeServerDir(), 'mods'), manifest });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+    app.post('/api/modpack/publish', async (req, res) => {
+      try {
+        const channel = await packPublisher.channel(CONFIG, req.body.name);
+        const updated = await packPublisher.configure(channel, req.body);
+        const manifest = await packPublisher.publish(updated);
+        res.json({ ...updated, manifest });
+      } catch (e) { res.status(400).json({ error: e.message }); }
+    });
+    app.get('/api/versions/:type', async (req, res) => {
+      try { res.json(await listVersions(req.params.type, req.query.refresh === '1')); }
+      catch (e) { res.status(502).json({ error: e.message }); }
+    });
     app.use(express.static(path.join(__dirname, 'client')));
 
     const httpServer = http.createServer(app);
@@ -258,18 +313,17 @@ function startServer(port) {
       server:     serverManager.getStatus(),
       tunnel:     tunnelManager.getUrl(),
       plugin:     CONFIG.pluginName,
-      ownerToken: teamManager.getOwnerToken(),
       mcAddress:  state.mcAddress,
       players:    state.players,
     }));
 
-    app.get('/api/diagnostics/logs/latest', (_, res) => {
+    app.get('/api/diagnostics/logs/latest', requirePerm('kick'), (_, res) => {
       const file = logger.latestFile();
       if (!file) return res.status(404).json({ error: '진단 로그가 아직 없습니다.' });
       res.download(file, path.basename(file));
     });
 
-    app.get('/api/diagnostics/logs', (_, res) => {
+    app.get('/api/diagnostics/logs', requirePerm('kick'), (_, res) => {
       res.json({ files: logger.listFiles().map(({ name, size, modifiedAt }) => ({ name, size, modifiedAt })) });
     });
 
@@ -284,12 +338,19 @@ function startServer(port) {
     app.post('/api/server/start',   async (_, res) => safeRun(res, () => serverManager.start()));
     app.post('/api/server/stop',    async (_, res) => safeRun(res, () => serverManager.stop()));
     app.post('/api/server/restart', async (_, res) => safeRun(res, () => serverManager.restart()));
+    app.post('/api/server/update', async (_, res) => safeRun(res, () => serverManager.updateRuntime()));
     app.post('/api/build',          async (_, res) => safeRun(res, () => buildWatcher.triggerBuild()));
     app.post('/api/tunnel/start',   async (_, res) => safeRun(res, () => tunnelManager.start()));
     app.post('/api/tunnel/stop',    (_, res)        => { tunnelManager.stop(); res.json({ ok: true }); });
 
     app.post('/api/config', (req, res) => {
+      if (serverManager.getStatus() !== 'stopped') return res.status(409).json({ error: '서버를 중지한 뒤 설정을 변경하세요.' });
       const { projectDir, pluginName, serverDir, memory, paperVersion, buildCmd, serverType, serverFolder, connectionMode } = req.body;
+      if (serverType && !['paper', 'fabric', 'vanilla', 'arclight', 'cardboard'].includes(serverType)) return res.status(400).json({ error: '지원하지 않는 서버 종류' });
+      if (paperVersion && !/^\d+\.\d+(\.\d+)?$/.test(paperVersion)) return res.status(400).json({ error: '안정 게임 버전을 선택하세요.' });
+      if (memory && !/^[1-9]\d*[GM]$/.test(memory)) return res.status(400).json({ error: '메모리 설정을 확인하세요.' });
+      try { if (serverFolder) profileDirectory(serverDir || CONFIG.serverDir, serverFolder); }
+      catch { return res.status(400).json({ error: '올바른 서버 폴더를 선택하세요.' }); }
       if (projectDir)   { CONFIG.projectDir  = projectDir;  buildWatcher.config.projectDir = projectDir; }
       if (pluginName)   { CONFIG.pluginName   = pluginName;  buildWatcher.config.pluginName = pluginName; }
       if (serverDir)    { CONFIG.serverDir    = serverDir;   serverManager.config.serverDir = serverDir; buildWatcher.config.serverDir = serverDir; }
@@ -305,9 +366,13 @@ function startServer(port) {
         if (connectionMode === 'portforward' && state.mcAddressSource === 'playit') setMcAddress(null, null);
       }
       saveConfig();
-      res.json({ ok: true, config: CONFIG });
+      const { rconPassword, playitSecret, ...publicConfig } = CONFIG;
+      res.json({ ok: true, config: publicConfig });
     });
-    app.get('/api/config', (_, res) => res.json({ ...CONFIG, appVersion: APP_VERSION }));
+    app.get('/api/config', (_, res) => {
+      const { rconPassword, playitSecret, ...publicConfig } = CONFIG;
+      res.json({ ...publicConfig, appVersion: APP_VERSION });
+    });
 
     // ── 공인 IP 조회 (포트포워딩 모드에서 주소 자동 채우기용) ──────────────────
     app.get('/api/public-ip', async (_, res) => {
@@ -320,13 +385,14 @@ function startServer(port) {
     });
 
     // ── 서버 프로필 ───────────────────────────────────────────────────────────
-    const PROFILES_FILE = path.join(os.homedir(), '.mc-devkit', 'profiles.json');
+    const PROFILES_FILE = path.join(DATA_ROOT, 'profiles.json');
     const loadProfiles  = () => { try { return fs.readJsonSync(PROFILES_FILE); } catch { return {}; } };
     const saveProfiles  = (p) => { fs.ensureDirSync(path.dirname(PROFILES_FILE)); fs.writeJsonSync(PROFILES_FILE, p, { spaces: 2 }); };
 
     app.get('/api/profiles', (_, res) => res.json(loadProfiles()));
 
     app.post('/api/profiles', async (req, res) => {
+      if (serverManager.getStatus() !== 'stopped') return res.status(409).json({ error: '서버를 중지한 뒤 프로필을 변경하세요.' });
       const { image, create = false } = req.body;
       const name = req.body.name?.trim();
       if (!name) return res.status(400).json({ error: '프로필 이름을 입력하세요.' });
@@ -362,7 +428,8 @@ function startServer(port) {
         buildWatcher.config.serverFolder = folder;
         saveConfig();
 
-        res.json({ ok: true, created: !existing, config: CONFIG });
+        const { rconPassword, playitSecret, ...publicConfig } = CONFIG;
+        res.json({ ok: true, created: !existing, config: publicConfig });
       } catch (e) {
         res.status(500).json({ error: e.message });
       }
@@ -413,6 +480,7 @@ function startServer(port) {
     });
 
     app.post('/api/profiles/:name/load', (req, res) => {
+      if (serverManager.getStatus() !== 'stopped') return res.status(409).json({ error: '실행 중인 서버를 중지한 뒤 다른 프로필을 여세요.' });
       const profiles = loadProfiles();
       const name = req.params.name;
       const p = Object.prototype.hasOwnProperty.call(profiles, name) ? profiles[name] : null;
@@ -434,66 +502,16 @@ function startServer(port) {
       serverManager.config.serverFolder = folder;
       buildWatcher.config.serverFolder = folder;
       saveConfig();
-      res.json({ ok: true, config: CONFIG });
+      const { rconPassword, playitSecret, ...publicConfig } = CONFIG;
+      res.json({ ok: true, config: publicConfig });
     });
 
-    app.get('/api/paper-versions', async (_, res) => {
-      try {
-        const { data } = await axios.get('https://api.purpurmc.org/v2/purpur', { timeout: 8000 });
-        res.json(([...(data.versions ?? [])]).reverse());
-      } catch { res.json([]); }
-    });
-
-    app.get('/api/fabric-versions', async (_, res) => {
-      try {
-        const { data } = await axios.get('https://meta.fabricmc.net/v2/versions/game', { timeout: 8000 });
-        res.json(data.filter(v => v.stable).map(v => v.version));
-      } catch { res.json([]); }
-    });
-
-    app.get('/api/arclight-versions', async (_, res) => {
-      try {
-        const { data: releases } = await axios.get(
-          'https://api.github.com/repos/IzzelAliz/Arclight/releases?per_page=50',
-          { headers: { 'User-Agent': 'mc-devkit' }, timeout: 10000 }
-        );
-        const versionSet = new Set();
-        for (const rel of releases) {
-          if (rel.prerelease || rel.tag_name.includes('SNAPSHOT')) continue;
-          for (const asset of rel.assets) {
-            const m = asset.name.match(/arclight-(?:forge|neoforge|fabric)-([\d.]+)-/);
-            if (m) versionSet.add(m[1]);
-          }
-        }
-        const sorted = [...versionSet].sort((a, b) => {
-          const av = a.split('.').map(Number), bv = b.split('.').map(Number);
-          for (let i = 0; i < Math.max(av.length, bv.length); i++) {
-            const d = (bv[i] || 0) - (av[i] || 0);
-            if (d !== 0) return d;
-          }
-          return 0;
-        });
-        res.json(sorted);
-      } catch { res.json([]); }
-    });
-
-    app.get('/api/cardboard-versions', async (_, res) => {
-      try {
-        const { data } = await axios.get('https://api.modrinth.com/v2/project/cardboard', {
-          headers: { 'User-Agent': 'mc-devkit' }, timeout: 8000,
-        });
-        const versions = (data.game_versions || []).filter(v => /^\d+\.\d+(\.\d+)?$/.test(v));
-        versions.sort((a, b) => {
-          const av = a.split('.').map(Number), bv = b.split('.').map(Number);
-          for (let i = 0; i < Math.max(av.length, bv.length); i++) {
-            const d = (bv[i] || 0) - (av[i] || 0);
-            if (d !== 0) return d;
-          }
-          return 0;
-        });
-        res.json(versions);
-      } catch { res.json([]); }
-    });
+    for (const type of ['paper','fabric','vanilla','arclight','cardboard']) {
+      app.get(`/api/${type}-versions`, async (_, res) => {
+        try { res.json(await listVersions(type)); }
+        catch (e) { res.status(502).json({ error: e.message }); }
+      });
+    }
 
     // ── 권한 API ──────────────────────────────────────────────────────────
     app.get('/api/permissions', (_, res) => res.json(teamManager.getPermissions()));
@@ -503,7 +521,7 @@ function startServer(port) {
     // secret key 적용
     if (CONFIG.playitSecret) ngrokManager.setSecretKey(CONFIG.playitSecret);
 
-    app.get('/api/ngrok/status', (_, res) => res.json({
+    app.get('/api/ngrok/status', requirePerm('kick'), (_, res) => res.json({
       running:  ngrokManager.isRunning(),
       address:  ngrokManager.getAddress(),
       claimUrl: ngrokManager.getClaimUrl(),
@@ -515,8 +533,7 @@ function startServer(port) {
       const { secret } = req.body;
       CONFIG.playitSecret = secret || null;
       ngrokManager.setSecretKey(CONFIG.playitSecret);
-      fs.ensureDir(path.dirname(CONFIG_FILE))
-        .then(() => fs.writeJson(CONFIG_FILE, CONFIG, { spaces: 2 }));
+      saveConfig();
       res.json({ ok: true });
     });
 
@@ -851,7 +868,7 @@ function startServer(port) {
       return lines.join('\n');
     }
 
-    app.get('/api/server-properties', async (_, res) => {
+    app.get('/api/server-properties', requirePerm('kick'), async (_, res) => {
       const file = path.join(activeServerDir(), 'server.properties');
       try {
         const text = await fs.readFile(file, 'utf8');
@@ -875,14 +892,29 @@ function startServer(port) {
     });
 
     // 30초마다 TPS 조회 (main thread 간섭 최소화)
-    setInterval(async () => {
+    const tpsTimer = setInterval(async () => {
       if (serverManager.getStatus() !== 'running') return;
       try { await rcon.sendSafe('tps'); } catch {}
     }, 30000);
 
+    httpServer.shutdown = async () => {
+      clearInterval(tpsTimer);
+      await packPublisher.close();
+      await buildWatcher.stop();
+      teamManager.close();
+      rcon.disconnect();
+      tunnelManager.stop();
+      ngrokManager.stop();
+      if (serverManager.getStatus() === 'running') await serverManager.stop();
+      httpServer.close();
+    };
+    httpServer.on('error', reject);
+    httpServer.on('close', () => { clearInterval(tpsTimer); teamManager.close(); buildWatcher.stop(); packPublisher.close(); });
     httpServer.listen(port, () => {
       console.log(`[MC DevKit] 서버 실행 중 → http://localhost:${port}`);
       buildWatcher.start();
+      packPublisher.init().catch(e => publishLog(e.message, 'modpack'));
+      httpServer.on('close', () => packPublisher.close());
       resolve(httpServer);
     });
   });
@@ -894,4 +926,4 @@ function safeRun(res, fn) {
 }
 
 function getState() { return state; }
-module.exports = { startServer, getState };
+module.exports = { startServer, getState, getOwnerToken: () => teamManager?.getOwnerToken() };

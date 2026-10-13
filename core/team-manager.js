@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const DEFAULT_ROLES = {
   OWNER:  ['start','stop','restart','reload','build','command','kick','world','upload'],
   ADMIN:  ['start','stop','restart','reload','build','command','world','upload'],
-  MEMBER: ['start','stop','restart','reload','build','command'],
+  MEMBER: [], // Host explicitly grants permissions to joined collaborators.
   VIEWER: [],
 };
 
@@ -82,7 +82,7 @@ class TeamManager {
       if (token) {
         const client = this.clients.get(token);
         this._audit('websocket-disconnected', { name: client?.name, role: client?.role, remoteAddress });
-        this.clients.delete(token);
+        if (this.clients.get(token)?.ws === ws) this.clients.delete(token);
         this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
       }
     });
@@ -102,11 +102,11 @@ class TeamManager {
       token = provided;
     } else {
       role  = 'MEMBER';
-      token = provided || uuidv4();
+      token = uuidv4();
     }
 
     this._tokenRoles.set(token, role);
-    this.clients.set(token, { ws, name: name || `User_${token.slice(0,4)}`, role, alive: true });
+    this.clients.set(token, { ws, id: uuidv4(), name: String(name || 'User').slice(0, 60), role, alive: true });
     this._audit('client-authenticated', { name: name || 'anonymous', role });
     ws.send(JSON.stringify({ type:'AUTH_OK', token, role, name,
       permissions: this._publicPermissions() }));
@@ -184,16 +184,17 @@ class TeamManager {
     const me = this.clients.get(token);
     if (!me || me.role !== 'OWNER') return;
 
-    const target = this.clients.get(msg.targetToken);
+    const entry = [...this.clients.entries()].find(([, client]) => client.id === msg.targetToken);
+    const target = entry?.[1];
     if (!target || target.role === 'OWNER') return;
 
     const valid = ['ADMIN','MEMBER','VIEWER'];
     if (!valid.includes(msg.newRole)) return;
 
     target.role = msg.newRole;
-    this._tokenRoles.set(msg.targetToken, msg.newRole);
+    this._tokenRoles.set(entry[0], msg.newRole);
     this._audit('role-changed', { by: me.name, target: target.name, newRole: msg.newRole });
-    target.ws.send(JSON.stringify({ type:'AUTH_OK', token: msg.targetToken,
+    target.ws.send(JSON.stringify({ type:'AUTH_OK', token: entry[0],
       role: msg.newRole, name: target.name,
       permissions: this._publicPermissions() }));
     this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
@@ -206,15 +207,16 @@ class TeamManager {
     const me = this.clients.get(token);
     if (!me || me.role !== 'OWNER') return;
 
-    const target = this.clients.get(msg.targetToken);
+    const entry = [...this.clients.entries()].find(([, client]) => client.id === msg.targetToken);
+    const target = entry?.[1];
     if (!target || target.role === 'OWNER') return;
 
     target.ws.send(JSON.stringify({ type:'KICKED', message:'관리자에 의해 강퇴되었습니다.' }));
     this._audit('client-kicked', { by: me.name, target: target.name, targetRole: target.role });
     target.ws.terminate();
-    this.clients.delete(msg.targetToken);
+    this.clients.delete(entry[0]);
     // 강퇴된 토큰의 부여 역할은 제거 — 같은 토큰으로 재접속해도 다시 MEMBER부터 시작
-    this._tokenRoles.delete(msg.targetToken);
+    this._tokenRoles.delete(entry[0]);
     this.broadcast({ type:'TEAM_UPDATE', clients: this._clientList() });
     this.broadcast({ type:'ACTION_LOG', message:`${me.name}이(가) ${target.name}을(를) 강퇴` });
   }
@@ -245,14 +247,19 @@ class TeamManager {
   }
 
   _clientList() {
-    return Array.from(this.clients.entries()).map(([tok, { name, role }]) =>
-      ({ name, role, id: tok }));
+    return Array.from(this.clients.values()).map(({ name, role, id }) =>
+      ({ name, role, id }));
   }
 
   broadcast(data) {
     const payload = JSON.stringify(data);
     for (const { ws } of this.clients.values())
       if (ws.readyState === 1) ws.send(payload);
+  }
+
+  broadcastOwner(data) {
+    const payload = JSON.stringify(data);
+    for (const { ws, role } of this.clients.values()) if (role === 'OWNER' && ws.readyState === 1) ws.send(payload);
   }
 
   // 로그는 50ms 단위로 배치 전송 — 개별 메시지 폭탄 방지
@@ -273,6 +280,12 @@ class TeamManager {
 
   broadcastStatus(status, url)    { this.broadcast({ type:'STATUS', status, tunnelUrl: url }); }
   getOwnerToken()                 { return this.ownerToken; }
+  close() {
+    clearInterval(this._heartbeat);
+    clearTimeout(this._logFlush);
+    for (const client of this.clients.values()) client.ws.terminate();
+    this.clients.clear();
+  }
 }
 
 module.exports = TeamManager;

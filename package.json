@@ -1,10 +1,10 @@
 {
   "name": "mc-devkit",
-  "version": "1.7.20",
-  "description": "Minecraft Plugin Dev Toolkit — 팀 협업 + 핫 리로드",
+  "version": "1.8.0",
+  "description": "Minecraft Creator Studio — 서버 관리와 팀 모드팩 자동 동기화",
   "main": "main.js",
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --test \"test/*.test.js\" && node scripts/check-client.js",
     "start": "electron .",
     "dev": "electron . --dev",
     "build": "electron-builder",
