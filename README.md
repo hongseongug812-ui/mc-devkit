@@ -3,11 +3,15 @@
 마인크래프트 서버를 쉽게 열고 관리할 수 있는 웹 기반 서버 관리 툴입니다.  
 포트포워딩 없이 외부 접속 지원, 팀원 권한 관리, 실시간 모니터링까지 한 번에.
 
+![MC DevKit 주요 기능](docs/images/mc-devkit-features-ko.png)
+
 ---
 
 ## 주요 기능
 
+- **서버 모드 검색·설치·자동 업데이트** — Modrinth에서 서버 버전·로더에 맞는 모드와 필수 모드 설치, 30분마다 새 안정 버전 확인, 촬영 중 구성 고정 ([사용법](docs/server-mods.md))
 - **콘텐츠 팀 모드팩 동기화** — 승인 배포·촬영 고정·이전 배포 복원, 참가자 게임 시작 전 모드·공용 설정 자동 적용, 준비 현황 ([사용법](docs/modpack-sync.md))
+- **참가자 계정 연결·게임 실행** — Microsoft 계정과 Java 이용 권한 확인, 연결한 설치 프로필로 직접 실행 ([앱 등록 설정](docs/minecraft-account.md))
 - **Studio UI** — 서버 카드, 넓은 설정 화면, 모드팩 배포와 참가 서버 관리
 - **최신 서버 버전 대응** — 종류별 릴리스 목록 새로고침, Paper 안정 빌드 검증, Minecraft 26.x Java 25 자동 준비
 
@@ -25,7 +29,9 @@
 
 ## 다운로드
 
-[MC DevKit v1.9.1 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.9.1/MC-DevKit-Setup-1.9.1.exe)
+[MC DevKit v1.10.0 설치파일 다운로드](https://github.com/hongseongug812-ui/mc-devkit/releases/download/v1.10.0/MC-DevKit-Setup-1.10.0.exe)
+
+[1.10.0 변경사항](docs/releases/v1.10.0.md) · [기능 소개 이미지 원본](docs/images/mc-devkit-features-ko.png)
 
 > Windows 전용 / 설치 후 바탕화면 MC DevKit 실행
 
@@ -53,8 +59,10 @@
 ### 멤버 (접속하는 사람)
 
 1. MC DevKit의 서버 참가에서 호스트의 참가 링크와 게임 프로필 연결
-2. 참가 서버의 **게임 시작 · 자동 적용** 클릭 → 적용 완료 후 런처에서 연결한 프로필의 플레이 클릭
+2. Microsoft 계정을 연결하고 참가 서버의 **게임 시작 · 자동 적용** 클릭. 승인된 모드·공용 설정을 적용한 뒤 연결한 설치 프로필로 실행합니다. 계정 앱 등록이 준비되지 않았다면 **외부 런처로 열기 · 자동 적용**을 사용할 수 있습니다.
 3. 멀티플레이 → 서버 추가 → 호스트에게 받은 Minecraft 접속 주소로 접속
+
+계정 직접 실행에는 앱 배포자의 Microsoft Client ID와 Minecraft API 승인이 필요합니다. Minecraft·로더·게임 리소스는 연결한 런처에서 한 번 설치·실행해야 합니다. 모드 검색은 현재 Modrinth 카탈로그를 사용합니다.
 
 ---
 

@@ -26,6 +26,7 @@ function renderStudioPack(data) {
   for(const p of list) {const row=document.createElement('div');row.className='participant-row';textRow(row,p.name,'participant-name');textRow(row,!p.online?'연결 끊김':p.ready?'준비 완료':SYNC_LABELS[p.status]||'확인 필요',p.ready?'inspection-ok':'subtle');participants.append(row);}
   if(!list.length)textRow(participants,'참가자가 연결되면 준비 상태가 표시됩니다.');
   if(data.inviteEnabled===false)el('packInviteStatus').textContent='초대 사용 중지됨 · 기존 연결 만료';
+  window.refreshModBrowser?.(data);
 }
 async function studioAction(action,body) {
   if(!selectedPack)throw Error('서버를 먼저 선택하세요.');
@@ -210,7 +211,11 @@ async function joinPack() {
 }
 
 const SYNC_LABELS = { current: '시작 준비 완료', updated: '업데이트 적용', waiting: '게임 종료 대기', error: '확인 필요', pending: '시작 시 자동 적용', syncing: '적용 중', 'config-pending':'공용 설정 적용 필요',paused:'연결 일시 중지' };
-function renderSubscriptions(rows) {
+let subscriptionRows = [];
+const subscriptionWork = new Set();
+let gameLaunchBusy = false;
+function renderSubscriptions(rows = subscriptionRows) {
+  subscriptionRows = rows;
   const grid = document.getElementById('syncGrid');
   grid.replaceChildren();
   if (!rows.length) {
@@ -230,37 +235,63 @@ function renderSubscriptions(rows) {
     const message = document.createElement('p'); message.className = 'subtle'; message.textContent = sub.message;
     const folder = document.createElement('div'); folder.className = 'sync-path'; folder.textContent = sub.modsDir;
     const actions = document.createElement('div'); actions.className = 'mc-row';
-    const addButton = (label, fn) => {
+    const account = window.mcAccount?.getState();
+    const directSupported = isElectron && typeof window.devkit.syncPlay === 'function' && account?.available;
+    const linking = account?.loading || account?.working || account?.busy || !!account?.pending;
+    const addButton = (label, fn, options = {}) => {
       const button = document.createElement('button'); button.className = 'mc-btn xs'; button.textContent = label;
-      button.disabled = sub.status === 'syncing';
+      button.disabled = !isElectron || sub.status === 'syncing' || subscriptionWork.has(sub.key) || options.launch && gameLaunchBusy || options.direct && (!directSupported || linking);
       button.onclick = async () => {
-        button.disabled = true;
-        try { renderSubscriptions(await fn()); } catch (e) { showToast(e.message, true); } finally { button.disabled = false; }
+        if (subscriptionWork.has(sub.key) || options.launch && gameLaunchBusy) return;
+        if (options.direct && !window.mcAccount.canPlay()) {
+          window.mcAccount.focus();
+          if (account.configured) await window.mcAccount.login();
+          return;
+        }
+        subscriptionWork.add(sub.key);
+        if (options.launch) gameLaunchBusy = true;
+        if (options.launch) window.dispatchEvent(new CustomEvent('mc-launch-state', { detail: { busy: true } }));
+        renderSubscriptions();
+        try { const updated = await fn(); if (Array.isArray(updated)) subscriptionRows = updated; }
+        catch (e) { showToast(e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ''), true); }
+        finally { subscriptionWork.delete(sub.key); if (options.launch) { gameLaunchBusy = false; window.dispatchEvent(new CustomEvent('mc-launch-state', { detail: { busy: false } })); } renderSubscriptions(); }
       };
       actions.append(button);
+      return button;
     };
-    addButton('▶ 게임 시작 · 자동 적용', async()=>{
+    const playLabel = gameLaunchBusy ? '게임 실행 준비 중…' : linking ? '계정 연결 중…' : window.mcAccount?.canPlay() ? '▶ 바로 게임 시작 · 자동 적용' : '계정 연결 후 게임 시작';
+    const playButton = addButton(isElectron ? playLabel : '앱에서 게임 시작', async()=>{
+      const result=await window.devkit.syncPlay(sub.key);showToast(result.message);return result.subscriptions;
+    }, { launch: true, direct: true });
+    playButton.classList.add('game-start');
+    if (!directSupported && isElectron) playButton.title = '계정 연결과 직접 실행을 지원하는 최신 MC DevKit 앱이 필요합니다.';
+    const playHint = document.createElement('p'); playHint.className = 'account-play-hint';
+    playHint.textContent = !isElectron ? '계정 연결과 게임 실행은 설치된 MC DevKit 앱에서 사용할 수 있습니다.'
+      : account?.account ? `${account.account.name} 계정 · 연결한 프로필의 Minecraft·로더를 사용합니다.`
+        : '홈의 Microsoft 계정을 연결하면 모드와 설정을 적용한 뒤 게임을 바로 실행합니다.';
+    addButton('외부 런처로 열기 · 자동 적용', async()=>{
       const result=await window.devkit.syncStart(sub.key);showToast(result.message);return result.subscriptions;
-    });
-    actions.lastChild.classList.add('game-start');
+    }, { launch: true });
     addButton('미리 적용', () => window.devkit.syncNow(sub.key));
     addButton('런처 · 바로가기 연결',()=>window.devkit.syncLauncher(sub.key));
     addButton(sub.enabled ? '업데이트 확인 중지' : '업데이트 확인 켜기', () => window.devkit.syncToggle(sub.key, !sub.enabled));
     const configLabel=document.createElement('label');configLabel.className='check-row';
     const configInput=document.createElement('input');configInput.type='checkbox';configInput.checked=!!sub.syncConfig;
-    configInput.onchange=async()=>{try{renderSubscriptions(await window.devkit.syncToggle(sub.key,{syncConfig:configInput.checked}));}catch(e){showToast(e.message,true);}};
+    configInput.disabled=!isElectron || subscriptionWork.has(sub.key) || sub.status==='syncing';
+    configInput.onchange=async()=>{subscriptionWork.add(sub.key);configInput.disabled=true;try{subscriptionRows=await window.devkit.syncToggle(sub.key,{syncConfig:configInput.checked});}catch(e){showToast(e.message,true);}finally{subscriptionWork.delete(sub.key);renderSubscriptions();}};
     configLabel.append(configInput,document.createTextNode('게임 시작 시 공용 설정 적용'));card.append(configLabel);
     addButton('참가 해제', async () => {
       if (!confirm('자동 동기화 연결을 해제할까요? 설치된 모드와 백업 파일은 게임 폴더에 남습니다.')) return rows;
       return window.devkit.syncLeave(sub.key);
     });
-    card.append(heading, environment, badge, message, folder, actions);
+    card.append(heading, environment, badge, message, folder, playHint, actions);
     if (sub.backupDir) {
       const backup = document.createElement('div'); backup.className = 'sync-path'; backup.textContent = `최근 백업: ${sub.backupDir}`; card.append(backup);
     }
     grid.append(card);
   }
 }
+window.addEventListener('mc-account-changed', () => renderSubscriptions());
 
 function updateVersionHint() {
   const version = document.getElementById('cfgVersion').value;

@@ -1,6 +1,6 @@
 {
   "name": "mc-devkit",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "Minecraft Creator Studio — 서버 관리와 팀 모드팩 자동 동기화",
   "main": "main.js",
   "scripts": {

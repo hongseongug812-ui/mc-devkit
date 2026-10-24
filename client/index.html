@@ -737,6 +737,7 @@
   </style>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="stylesheet" href="/studio.css"/>
+  <link rel="stylesheet" href="/mod-browser.css"/>
 </head>
 <body>
 
@@ -778,6 +779,32 @@
     </div>
     <div class="section-heading"><h2>내가 관리하는 서버</h2><span>서버 · 게임 버전별 독립 작업 공간</span></div>
     <div id="profileGrid" class="profile-grid"></div>
+    <section id="mcAccountCard" class="account-card" aria-labelledby="mcAccountTitle" tabindex="-1">
+      <div class="account-heading">
+        <div><div class="eyebrow">MINECRAFT JAVA EDITION</div><h2 id="mcAccountTitle">마인크래프트 계정 연결</h2><p class="subtle">계정 연결 → 모드 자동 적용 → 바로 게임 실행</p></div>
+        <span id="mcAccountBadge" class="account-badge">연결 확인 중</span>
+      </div>
+      <div id="mcAccountSummary" class="status-note" role="status">계정 상태를 확인하고 있습니다…</div>
+      <div id="mcAccountActions" class="mc-row account-actions">
+        <button id="mcAccountLogin" class="mc-btn t-green xs" disabled>Microsoft 계정 연결</button>
+        <button id="mcAccountLogout" class="mc-btn xs" hidden>계정 연결 해제</button>
+        <button id="mcAccountCancel" class="mc-btn xs" hidden>연결 취소</button>
+      </div>
+      <div id="mcAccountPending" class="account-pending" hidden>
+        <p class="subtle">Microsoft 로그인 화면에서 아래 코드를 입력하세요.</p>
+        <div class="account-code-row"><code id="mcAccountCode" class="account-code"></code><button id="mcAccountCopy" class="mc-btn xs">코드 복사</button><button id="mcAccountOpen" class="mc-btn xs">Microsoft 로그인 열기</button></div>
+        <div id="mcAccountExpiry" class="field-hint"></div>
+      </div>
+      <div id="mcAccountError" class="inspection-error" role="alert" hidden></div>
+      <div id="mcAccountNotice" class="field-hint" role="status"></div>
+      <details id="mcAccountSetup" class="studio-details" hidden>
+        <summary>Microsoft 로그인 앱 설정</summary>
+        <p class="subtle">앱 배포자가 등록한 공개 클라이언트 ID를 입력하세요. Microsoft Entra 앱 등록과 Minecraft API 사용 승인이 필요합니다.</p>
+        <label class="mc-label" for="mcAccountClientId">Microsoft 애플리케이션 (클라이언트) ID</label>
+        <div class="mc-row"><input id="mcAccountClientId" class="mc-inp" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"/><button id="mcAccountSave" class="mc-btn xs">저장</button></div>
+        <div class="field-hint">Minecraft Java Edition을 사용할 수 있는 Microsoft 계정으로 로그인하세요. 비밀번호는 Microsoft 로그인 화면에서만 입력합니다.</div>
+      </details>
+    </section>
     <div class="section-heading"><h2>참가 중인 서버</h2><span>앱 실행 중 15초마다 모드팩 확인</span></div>
     <div id="syncGrid" class="sync-grid"><div class="empty-state">호스트의 참가 링크로 서버에 연결하세요.<br>공식 런처 · CurseForge · Modrinth의 게임 폴더를 지원합니다.</div></div>
   </div>
@@ -887,6 +914,7 @@
         <div class="mc-section-title">참가자 모드팩 배포</div>
         <p class="subtle">이 서버와 게임 버전 전용 배포입니다. 참가자에게 필요한 모드만 배포 폴더에 넣으세요.</p>
         <div id="packStatus" class="status-note" role="status"></div>
+        <div id="modBrowser"></div>
         <div class="form-heading">준비된 변경분</div><div id="packPending" class="release-preview"></div>
         <label class="check-row"><input id="packEmpty" type="checkbox"/>빈 배포 승인 · 관리 파일 모두 제거</label>
         <div class="mc-row"><button id="approvePackBtn" class="mc-btn t-green" onclick="approvePack()">변경분 승인 · 참가자에게 배포</button><button id="filmingPackBtn" class="mc-btn" onclick="toggleFilming()">촬영 모드 켜기</button></div>
@@ -1162,7 +1190,7 @@
       <div><label class="mc-label" for="joinNickname">호스트에게 표시할 이름</label><input id="joinNickname" class="mc-inp" maxlength="60" placeholder="촬영 닉네임"/></div>
       <label class="check-row"><input id="joinConfig" type="checkbox" checked/>호스트가 선택한 공용 설정 적용 (기존 파일 백업)</label>
       <label class="check-row"><input id="joinAcknowledged" type="checkbox"/>환경 자동 확인이 불가능한 폴더의 버전·로더를 직접 확인했습니다</label>
-      <div class="notice">서버별로 별도 인스턴스를 연결하세요. 게임 시작 시 적용을 마친 뒤 런처를 엽니다. 런처에서 연결한 프로필의 플레이를 눌러주세요. 게임 프로필 바로가기도 연결할 수 있습니다.</div>
+      <div class="notice">서버별로 별도 인스턴스를 연결하세요. 같은 Minecraft·로더가 설치된 프로필이 필요합니다. 계정을 연결하면 모드와 설정을 적용한 뒤 바로 게임을 실행합니다. 외부 런처로 열기도 사용할 수 있습니다.</div>
       <div id="joinStatus" class="status-note" role="status"></div>
       <div class="mc-row"><button class="mc-btn" onclick="closeJoinModal()">닫기</button><button id="joinBtn" class="mc-btn t-green" onclick="joinPack()">게임 프로필 연결 · 참가</button></div>
     </div>
@@ -2721,6 +2749,8 @@ async function saveSrvProps() {
 init().catch(e => appendLog(`[DevKit] 초기화 실패: ${e.message}`, 'error'));
 connect();
 </script>
+<script src="/account.js"></script>
 <script src="/modpacks.js"></script>
+<script src="/mod-browser.js"></script>
 </body>
 </html>

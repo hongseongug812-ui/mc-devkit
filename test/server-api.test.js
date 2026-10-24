@@ -24,6 +24,8 @@ test('real HTTP distribution authenticates downloads and protects management ope
   assert.equal((await request('/api/config')).data.rconPassword,undefined);
   assert.equal((await request('/api/server/start',{method:'POST'})).status,401);
   assert.equal((await request('/api/modpack')).status,401);
+  assert.equal((await request('/api/modpack/catalog/installed')).status,401);
+  assert.equal((await request('/api/modpack/catalog/install',{method:'POST'})).status,401);
   assert.equal((await request('/api/server-properties')).status,401);
   const ownerToken=getOwnerToken();
   const socket = new WebSocket(base.replace('http','ws'));
@@ -42,6 +44,11 @@ test('real HTTP distribution authenticates downloads and protects management ope
   const pack=await request('/api/modpack/publish',{method:'POST',headers,body:JSON.stringify({name:'Test',autoPublish:false,loaderVersion:'0.18.4'})});
   assert.equal(pack.status,200);
   const id=pack.data.id,token=pack.data.token;
+  const catalogState=await request(`/api/modpack/catalog/installed?id=${id}`,{headers});
+  assert.equal(catalogState.status,200);assert.deepEqual(catalogState.data.installed,[]);
+  assert.equal((await request('/api/modpack/catalog/settings',{method:'POST',headers,body:JSON.stringify({id,autoUpdate:false})})).data.autoUpdate,false);
+  assert.equal((await request('/api/modpack/catalog/settings',{method:'POST',headers,body:JSON.stringify({id:'f'.repeat(32),autoUpdate:true})})).status,400);
+  assert.equal((await request('/api/modpack/catalog/update',{method:'POST',headers:{'X-Pack-Token':token,'Content-Type':'application/json'},body:JSON.stringify({id})})).status,401);
   assert.equal((await request(`/api/packs/${id}/manifest`)).status,401);
   const downloadHeaders={'X-Pack-Token':token,'X-DevKit-Version':'1.9.0','Content-Type':'application/json'};
   assert.equal((await request(`/api/packs/${id}/manifest`,{headers:downloadHeaders})).status,404);
@@ -80,6 +87,17 @@ test('real HTTP distribution authenticates downloads and protects management ope
   await participant.close();
   assert.equal((await request('/api/config',{method:'POST',headers:downloadHeaders,body:JSON.stringify({memory:'8G'})})).status,401);
   assert.equal((await request('/api/config',{method:'POST',headers,body:JSON.stringify({serverFolder:'../other'})})).status,400);
+  const catalogPrototype = require('../core/mod-catalog').prototype;
+  const committingDescriptor = Object.getOwnPropertyDescriptor(catalogPrototype, 'committing');
+  Object.defineProperty(catalogPrototype, 'committing', { configurable:true, get:()=>true });
+  try {
+    for (const route of ['/api/config', '/api/profiles', '/api/profiles/Test/load']) {
+      assert.equal((await request(route,{method:'POST',headers,body:JSON.stringify({name:'Test',paperVersion:'26.4'})})).status,409);
+    }
+    assert.equal((await request('/api/profiles/Test',{method:'DELETE',headers})).status,409);
+    assert.equal((await request('/api/config',{headers})).status,200);
+    assert.equal((await request('/api/profiles',{headers})).status,200);
+  } finally { Object.defineProperty(catalogPrototype, 'committing', committingDescriptor); }
   assert.equal((await request('/api/config',{method:'POST',headers,body:JSON.stringify({serverType:'vanilla',paperVersion:'26.3'})})).status,200);
   socket.terminate();
 });

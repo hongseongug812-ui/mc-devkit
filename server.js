@@ -20,6 +20,7 @@ const PlayitManager  = require('./core/playit-manager');
 const { logger, redactText } = require('./core/diagnostic-logger');
 const APP_VERSION    = require('./package.json').version;
 const PackPublisher = require('./core/studio-publisher');
+const ModCatalog = require('./core/mod-catalog');
 const { listVersions, listLoaders } = require('./core/versions');
 const DATA_ROOT = process.env.DEVKIT_DATA_DIR || path.join(os.homedir(), '.mc-devkit');
 const {
@@ -176,6 +177,24 @@ const packPublisher = new PackPublisher(path.join(DATA_ROOT, 'packs'),
     publishLog(`[모드팩] ${manifest.name} · MC ${manifest.minecraft} · ${manifest.files.length}개 ${manifest.prepared ? '배포 준비 완료' : '승인 배포 완료'}`, 'modpack');
     teamManager?.broadcast({ type: 'PACK_PUBLISHED', id: manifest.id, revision: manifest.revision });
   }, error => publishLog(`[모드팩] 자동 배포 실패: ${error.message}`, 'modpack'));
+const modCatalog = new ModCatalog(packPublisher, {
+  isServerRunning: () => serverManager.getStatus() !== 'stopped',
+  isChannelCurrent: async (channel, catalog) => {
+    if (!catalog.serverModsDir) return true;
+    const directory = pathKey(path.dirname(catalog.serverModsDir));
+    const sameDirectory = config => config && pathKey(path.join(config.serverDir || CONFIG.serverDir, config.serverFolder || config.serverType || 'paper')) === directory;
+    const current = sameDirectory(CONFIG) ? [CONFIG]
+      : Object.values(await fs.readJson(path.join(DATA_ROOT, 'profiles.json')).catch(() => ({}))).filter(sameDirectory);
+    // Retired version channels must not reintroduce old mods into a reused server folder.
+    return current.some(config => config.paperVersion === channel.minecraft &&
+      (['forge', 'neoforge'].includes(config.serverType) ? config.serverType : config.serverType === 'arclight' ? 'forge'
+        : ['fabric', 'cardboard'].includes(config.serverType) ? 'fabric' : 'none') === channel.loader);
+  },
+  onError: error => publishLog(error.message, 'mod-catalog'),
+});
+serverManager.beforeStart = () => {
+  if (modCatalog.committing) throw Error('모드 파일을 적용 중입니다. 완료 후 서버를 시작하세요.');
+};
 
 // REST API 권한 체크 미들웨어
 function requirePerm(perm) {
@@ -241,6 +260,7 @@ function startServer(port) {
       const permission = req.path === '/server/update' ? 'restart' : req.path.startsWith('/server/') ? req.path.split('/')[2]
         : req.path === '/build' ? 'build' : req.path === '/backup' ? 'world' : null;
       if (permission && !(teamManager.roles[client.role] || []).includes(permission)) return res.status(403).json({ error: '권한이 없습니다.' });
+      if (modCatalog.committing && /^\/(config|profiles)(\/|$)/.test(req.path)) return res.status(409).json({ error: '모드 파일을 적용 중입니다. 완료 후 서버 설정이나 프로필을 변경하세요.' });
       next();
     });
 
@@ -269,6 +289,33 @@ function startServer(port) {
         const channel = await packPublisher.channel(CONFIG, req.query.name);
         res.json({ ...await packPublisher.view(channel), serverModsDir: path.join(activeServerDir(), 'mods') });
       } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+    const catalogChannel = async req => {
+      const config = { ...CONFIG };
+      const channel = await packPublisher.channel(config, req.body?.name || req.query.name);
+      if ((req.body?.id || req.query.id) !== channel.id) throw Error('선택한 서버가 변경됐습니다. 모드팩 화면을 새로고침하세요.');
+      req.catalogServerModsDir = path.join(config.serverDir, config.serverFolder || config.serverType, 'mods');
+      return channel;
+    };
+    for (const action of ['search', 'versions', 'installed']) app.get(`/api/modpack/catalog/${action}`, requirePerm('kick'), async (req, res) => {
+      try {
+        const channel = await catalogChannel(req);
+        res.set('Cache-Control', 'no-store');
+        if (action === 'search') return res.json(await modCatalog.search(channel, req.query.q || '', Number(req.query.offset || 0)));
+        if (action === 'versions') return res.json(await modCatalog.versions(channel, req.query.project));
+        res.json(await modCatalog.installed(channel.id));
+      } catch (error) { res.status(400).json({ error: error.message }); }
+    });
+    for (const action of ['install', 'update', 'settings']) app.post(`/api/modpack/catalog/${action}`, async (req, res) => {
+      try {
+        const channel = await catalogChannel(req);
+        if (action === 'settings') return res.json(await modCatalog.settings(channel.id, req.body.autoUpdate));
+        const result = action === 'install'
+          ? await modCatalog.install(channel, req.catalogServerModsDir, req.body)
+          : await modCatalog.update(channel.id);
+        publishLog(`[모드 관리] ${channel.name} · ${action === 'install' ? '모드 설치' : '호환 업데이트 확인'} 완료`, 'mod-catalog');
+        res.json(result);
+      } catch (error) { res.status(400).json({ error: error.message }); }
     });
     app.post('/api/modpack/publish', async (req, res) => {
       try {
@@ -434,6 +481,8 @@ function startServer(port) {
         const folder = existing
           ? (existing.serverFolder || sanitizeFolder(name))
           : await allocateProfileFolder(name, CONFIG.serverDir, profiles);
+
+        if (modCatalog.committing) return res.status(409).json({ error: '모드 파일을 적용 중입니다. 완료 후 프로필을 변경하세요.' });
 
         profiles[name] = {
           serverType:   CONFIG.serverType,
@@ -929,6 +978,7 @@ function startServer(port) {
 
     httpServer.shutdown = async () => {
       clearInterval(tpsTimer);
+      modCatalog.close();
       await packPublisher.close();
       await buildWatcher.stop();
       teamManager.close();
@@ -939,11 +989,12 @@ function startServer(port) {
       httpServer.close();
     };
     httpServer.on('error', reject);
-    httpServer.on('close', () => { clearInterval(tpsTimer); teamManager.close(); buildWatcher.stop(); packPublisher.close(); });
+    httpServer.on('close', () => { clearInterval(tpsTimer); modCatalog.close(); teamManager.close(); buildWatcher.stop(); packPublisher.close(); });
     httpServer.listen(port, () => {
       console.log(`[MC DevKit] 서버 실행 중 → http://localhost:${port}`);
       buildWatcher.start();
       packPublisher.init().catch(e => publishLog(e.message, 'modpack'));
+      modCatalog.start();
       httpServer.on('close', () => packPublisher.close());
       resolve(httpServer);
     });

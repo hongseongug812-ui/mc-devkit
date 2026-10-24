@@ -1,0 +1,89 @@
+Use case: infographic-diagram.
+Asset type: a single finished Korean product feature guide image to share with a Minecraft broadcasting team.
+Primary request: Clearly organize the real, implemented capabilities of MC DevKit. The product is FIRST a Minecraft SERVER MANAGEMENT TOOL. Host server setup, mod management, broadcasting coordination, and sharing must visually dominate. Participant account/game launching is a compact secondary support feature near the bottom.
+Canvas: high-resolution portrait, approximately 2048 x 3072, all content comfortably inside the image, opaque background.
+Style: polished, professional Korean software product infographic; contemporary dark navy design matching the app, white and light blue typography, restrained turquoise and sky-blue accents, thin dividers, softly rounded panels. Small simple server / package / network / shield icons. A subtle block-world motif is acceptable but never compete with the typography. No fake application screenshot, no people, no unrelated character, no promotional claims or invented features.
+Composition: very clear hierarchy, large product title at top; concise subtitle and explanatory sentence; a left-to-right four-step workflow; seven supported server-type chips; 8 evenly sized feature cards in a 2-column by 4-row grid; a separate compact full-width participant-support card below; a small additional-convenience strip; an entirely legible conditions footer. Plenty of padding and breathing room, balanced columns, strong contrast. Readable Korean sans-serif type throughout. Each card title is bold, body is clean and short. Use the exact Korean text below; keep the listed lines and content, do not invent extra copy. No clipping, gibberish, misspellings, illegible microtext, watermark, or fake certification badges. Do not say that an installer has been published, real-account login has been tested, or compatibility is guaranteed.
+
+Exact text:
+
+Title:
+"MC DevKit"
+Subtitle:
+"방송팀을 위한 마인크래프트 서버 관리 도구"
+Explanation:
+"방장이 서버와 모드를 세팅하면, 참가자에게 같은 구성을 공유합니다."
+
+Workflow:
+"서버 구성" → "모드 검색·설치" → "검사·승인" → "참가자 자동 적용"
+
+Supported server chips:
+"Paper" "Fabric" "Forge" "NeoForge" "Vanilla" "Arclight" "Cardboard"
+
+Card 01 title: "서버 만들기·운영"
+Body:
+"서버·버전별 독립 프로필"
+"공식 버전·로더 선택과 실행 파일 갱신"
+"시작·중지·재시작 · Java 자동 준비"
+
+Card 02 title: "모드 검색·설치"
+Body:
+"Modrinth에서 버전·로더별 검색"
+"필수 의존 모드 함께 다운로드"
+"서버용·참가자용·양쪽 설치"
+
+Card 03 title: "방장 세팅 공유"
+Body:
+"모드와 선택한 공용 설정 공유"
+"검사 후 승인 또는 자동 배포 선택"
+"참가 링크 발급·재발급·중지"
+
+Card 04 title: "방송을 고려한 업데이트"
+Body:
+"30분마다 같은 환경의 새 안정판 확인"
+"서버 파일 변경은 서버 실행 중 보류"
+"촬영 중 고정 · 참가자는 다음 실행 전 적용"
+
+Card 05 title: "준비 확인·복원"
+Body:
+"팀원별 적용 배포와 준비 상태 확인"
+"이전 승인 배포로 복원"
+"다운로드 검증·백업·실패 복구"
+
+Card 06 title: "외부 접속·공유"
+Body:
+"playit.gg로 외부 Minecraft 접속"
+"Cloudflare로 모드팩 공유 연결"
+"임시 주소·고정 공유 주소 지원"
+
+Card 07 title: "실시간 운영·팀 권한"
+Body:
+"TPS·핑·접속 플레이어·실시간 로그"
+"콘솔 명령 전송·탭 자동완성"
+"Owner · Admin · Member · Viewer"
+
+Card 08 title: "파일 관리·제작 지원"
+Body:
+"월드 백업·ZIP 맵 업로드·JAR 관리"
+"제작 프로젝트 자동 빌드·산출물 배포"
+"지원 플러그인 리로드·서버별 최적화"
+
+Full-width secondary card title:
+"참가자 지원 · 계정 연결과 게임 실행"
+Body:
+"Microsoft 계정·Java 이용 권한 확인"
+"설치된 프로필로 실행 · 시작 전 모드·공용 설정 적용"
+"외부 런처 연결도 지원"
+
+Convenience strip heading: "추가 편의 기능"
+Text:
+"서버 세부 설정 · 비정상 종료 자동 재시작 · 배경 꾸미기"
+"앱 자동 업데이트: 시작 시·15분마다 확인, 작업 종료 후 설치"
+
+Conditions footer, readable and subdued:
+"모드 검색은 Modrinth 기반이며 Minecraft·로더 버전 자체는 자동으로 올리지 않습니다."
+"계정 직접 실행에는 앱 등록·Minecraft API 승인과 사전 설치된 게임 프로필이 필요합니다."
+"준비 현황은 참가 앱의 상태 보고입니다. 방송 전 실제 서버·게임 실행을 확인하세요."
+
+Tiny bottom signature:
+"MC DevKit · 현재 작업본 기능 안내"

@@ -590,6 +590,7 @@ class ServerManager {
   // ── 서버 시작 (완전 자동) ──────────────────────────────────────────────────
   // forcedJavaMajor: "Java N 이상 필요" 메시지 감지 후 자동 재시작할 때만 내부적으로 사용
   async start(forcedJavaMajor = null) {
+    this.beforeStart?.();
     if (this.status !== 'stopped') throw new Error('서버가 이미 실행 중입니다.');
     this.status    = 'starting';
     this._stopping = false;

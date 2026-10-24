@@ -14,6 +14,17 @@ contextBridge.exposeInMainWorld('devkit', {
   launcherProfiles: () => ipcRenderer.invoke('launcher-profiles'),
   syncJoin: (invite, launcher, options) => ipcRenderer.invoke('sync-join', invite, launcher, options),
   syncStart: (key) => ipcRenderer.invoke('sync-start', key),
+  syncPlay: (key) => ipcRenderer.invoke('sync-play', key),
+  accountStatus: () => ipcRenderer.invoke('account-status'),
+  accountConfigure: (clientId) => ipcRenderer.invoke('account-configure', clientId),
+  accountLogin: () => ipcRenderer.invoke('account-login'),
+  accountCancel: () => ipcRenderer.invoke('account-cancel'),
+  accountLogout: () => ipcRenderer.invoke('account-logout'),
+  onAccountChanged: (callback) => {
+    const listener = (_, status) => callback(status);
+    ipcRenderer.on('account-changed', listener);
+    return () => ipcRenderer.removeListener('account-changed', listener);
+  },
   syncLauncher: (key) => ipcRenderer.invoke('sync-launcher', key),
   syncNow: (key) => ipcRenderer.invoke('sync-now', key),
   syncToggle: (key, enabled) => ipcRenderer.invoke('sync-toggle', key, enabled),

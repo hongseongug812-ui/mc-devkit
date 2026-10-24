@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, safeStorage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const os = require('os');
@@ -9,6 +9,8 @@ const { ModSync } = require('./core/mod-sync');
 const { discoverProfiles } = require('./core/launcher-profiles');
 const { openLauncher } = require('./core/game-launcher');
 const { gameRunning } = require('./core/game-process');
+const { MinecraftAccount } = require('./core/minecraft-account');
+const { launchMinecraft } = require('./core/minecraft-client');
 const AutomaticUpdates = require('./core/automatic-updates');
 
 const isDev = process.argv.includes('--dev');
@@ -35,6 +37,8 @@ let syncManager = null;
 let quitReady = false;
 let shutdownPending = false;
 let automaticUpdates = null;
+let minecraftAccount = null;
+let gameLaunchPending = false;
 
 // ── 메인 윈도우 생성 ────────────────────────────────────────────────────────
 function createWindow() {
@@ -131,6 +135,12 @@ function registerIpc() {
   });
 
   handle('sync-list', () => syncManager.list());
+  // Account credentials stay in the main process. Only public profile/status data crosses IPC.
+  handle('account-status', () => minecraftAccount.status());
+  handle('account-configure', (_, clientId) => minecraftAccount.configure(clientId));
+  handle('account-login', () => minecraftAccount.beginLogin());
+  handle('account-cancel', () => minecraftAccount.cancelLogin());
+  handle('account-logout', () => minecraftAccount.logout());
   handle('launcher-profiles', () => discoverProfiles({appData:app.getPath('appData')}));
   handle('sync-join', async (_, invite, launcher, options = {}) => {
     if(options.profileKey) {
@@ -160,7 +170,17 @@ function registerIpc() {
     const sub=syncManager.subscriptions.find(s=>s.key===key);if(!sub)throw Error('참가 서버를 찾을 수 없습니다.');
     const target=await chooseLauncher();if(target){sub.launchPath=target;await syncManager.persist();}return syncManager.list();
   });
-  handle('sync-start',(_,key)=>syncManager.startGame(key,sub=>openLauncher(sub,{
+  const startGame = async (key, launch) => {
+    if (gameLaunchPending) throw Error('게임 시작을 준비 중입니다. 잠시 기다려 주세요.');
+    gameLaunchPending = true;
+    try { return await syncManager.startGame(key, launch); }
+    finally { gameLaunchPending = false; }
+  };
+  handle('sync-play', (_, key) => startGame(key, async sub => {
+    const session = await minecraftAccount.getSession();
+    return launchMinecraft(sub, session, { appData: app.getPath('appData') });
+  }));
+  handle('sync-start',(_,key)=>startGame(key,sub=>openLauncher(sub,{
     openPath:target=>shell.openPath(target),select:chooseLauncher,
     save:async target=>{const saved=syncManager.subscriptions.find(s=>s.key===key);if(saved){saved.launchPath=target;await syncManager.persist();}}
   })));
@@ -201,6 +221,14 @@ function forceQuit() {
 app.whenReady().then(async () => {
   server = await startServer(PORT);
 
+  minecraftAccount = new MinecraftAccount(process.env.DEVKIT_DATA_DIR || path.join(os.homedir(), '.mc-devkit'), {
+    secureStorage: safeStorage,
+    onChange: status => { if (win && !win.isDestroyed()) win.webContents.send('account-changed', status); },
+  });
+  try { await minecraftAccount.init(); } catch {
+    dialog.showErrorBox('계정 설정 확인 필요', '저장된 계정 설정을 읽을 수 없습니다. 계정 연결 화면에서 다시 연결하세요.');
+  }
+
   createWindow();
   createTray();
   registerIpc();
@@ -215,13 +243,13 @@ app.whenReady().then(async () => {
   if (app.isPackaged) {
     automaticUpdates=new AutomaticUpdates(autoUpdater,{
       isIdle:async()=>{
-        if(shutdownPending || win.isVisible() || syncManager.locks.size || !await isUpdateIdle() || await gameRunning())return false;
+        if(shutdownPending || win.isVisible() || gameLaunchPending || minecraftAccount.status().busy || syncManager.locks.size || !await isUpdateIdle() || await gameRunning())return false;
         const stillIdle=await isUpdateIdle();
-        return stillIdle && !shutdownPending && !win.isVisible() && !syncManager.locks.size;
+        return stillIdle && !shutdownPending && !win.isVisible() && !gameLaunchPending && !minecraftAccount.status().busy && !syncManager.locks.size;
       },
       beforeInstall:async()=>{
         isQuitting=true;shutdownPending=true;
-        await Promise.all([syncManager.close(),server.shutdown()]);quitReady=true;automaticUpdates.close();
+        await Promise.all([minecraftAccount.close(),syncManager.close(),server.shutdown()]);quitReady=true;automaticUpdates.close();
       },
       onStatus:status=>{
         if(status==='downloading')manualCheckPending=false;
@@ -274,6 +302,7 @@ app.on('before-quit', (event) => {
   if (shutdownPending) return;
   shutdownPending = true;
   automaticUpdates?.close();
+  minecraftAccount?.close();
   Promise.resolve(syncManager?.close()).finally(() => {
     Promise.resolve(server?.shutdown()).finally(() => {
       quitReady = true;
